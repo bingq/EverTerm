@@ -46,3 +46,4 @@
 - Rename: double-click, context menu, or ⌘⇧R; Enter saves, Esc cancels; empty name or the automatic name clears it. Saved as customName in meta.json.
 - Dots: green running, orange connection dropped (set by the foreground rescue, cleared when the next program starts), grey exit 0, red error or signal; blue unseen-output dot (TerminalSession.onOutput, at most every 0.5 s).
 - TerminalWindowController removed; its delegate code moved into SessionModel.
+- Build fix: main.swift (nonisolated top-level code) could not create the @MainActor AppDelegate. Replaced with an @main @MainActor entry point (EverTermMain.swift); delegate kept alive with withExtendedLifetime because NSApplication.delegate is weak.
