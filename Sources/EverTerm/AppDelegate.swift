@@ -36,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func resetTerminal(_ sender: Any?) { store?.selected?.resetTerminal() }
 
+    @objc func showShellHistory(_ sender: Any?) { main?.showShellHistory() }
+
     @objc func showSessionLogs(_ sender: Any?) {
         let root = SessionLogger.rootURL
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

@@ -53,3 +53,14 @@
 - Checked in SwiftTerm 1.99.3 source: .legacy reserves NSScroller.scrollerWidth from the terminal width, so the column count shrinks and no text sits under the bar (R4). On the alternate screen canScroll is false and the knob size is 0, so the bar is disabled instead of scrolling the hidden normal buffer (R5). Knob, track and wheel use SwiftTerm's own scroller wiring (R2, R3).
 - R6 (overlay style setting) waits for step 5 preferences. R7 (history view) comes with 4b.
 - Not compiled here (the dev box is Linux). Mac test: checklist in issue #12.
+
+## 2026-11-11: #14 shell history around full-screen apps
+- Bing's test: several screens of zsh history, then Claude Code; the earlier history could not be reached.
+- Two causes: Claude Code runs on the alternate screen (normal scrollback hidden, SwiftTerm disables scrolling there), and apps may send ESC[3J, which SwiftTerm handles by deleting the scrollback (Terminal.swift CSI 3 J -> trimStart).
+- F1: TerminalSession drops ESC[3J before feeding (TerminalSession.keepScrollbackOnErase). output.raw still has it. The carry hold-back now also covers a split ESC[3J and starts at 2 bytes ("ESC[").
+- F2: ShellHistoryPanel, a read-only NSTextView over the terminal with the normal buffer (terminalContentSnapshot(.all, .normal)), plain text, same font and colours, capped at 200k lines (older: output.txt), opened at the newest line. Opens on Shift + scroll up while the alternate screen is active (NSEvent local monitor: SwiftTerm's scrollWheel is public, not open; Shift on a mouse wheel reports deltaX) or Shell -> Show Shell History (⇧⌘H). Closes on Esc, scrolling down from the end (no momentum), switching session, or any non-navigation key, which is forwarded to the terminal.
+- Not compiled here (the dev box is Linux). Mac test: checklist in issue #14.
+
+## 2026-11-11: repos renamed
+- Source: bingq/everterm -> bingq/EverTermSrc (private). Public site: bingq/EverTerm (GitHub Pages https://bingq.github.io/EverTerm/: home, support, privacy policy for App Store Connect).
+- The old `everterm` redirect is gone because the public repo now has that name. Existing clones must run: git remote set-url origin https://github.com/bingq/EverTermSrc.git

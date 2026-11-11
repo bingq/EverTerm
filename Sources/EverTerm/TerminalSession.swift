@@ -10,6 +10,12 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     /// leaves the alternate screen (or when the session dies while in it).
     static var captureAlternateScreen = true
 
+    /// #14: drop "erase scrollback" (ESC[3J) so no program (Claude Code, `clear`)
+    /// can delete the history. ESC[2J (clear the visible screen) still works.
+    /// output.raw keeps the byte; only the screen ignores it.
+    static var keepScrollbackOnErase = true
+    private static let eraseScrollback: [UInt8] = Array("\u{1b}[3J".utf8)
+
     /// Sequences that leave the alternate screen.
     private static let altExitSequences: [[UInt8]] =
         ["\u{1b}[?1049l", "\u{1b}[?1047l", "\u{1b}[?47l"].map { Array($0.utf8) }
@@ -99,23 +105,49 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     func dataReceived(slice: ArraySlice<UInt8>) {
         logger.append(slice)
         checkForegroundReturnedToShell()
-        guard Self.captureAlternateScreen else {
+        guard Self.captureAlternateScreen || Self.keepScrollbackOnErase else {
             view?.feed(byteArray: slice)
             return
         }
         var bytes = carry
         bytes.append(contentsOf: slice)
         carry = []
-        // Hold back a tail that could be the start of an alt-exit sequence.
-        if let esc = bytes.lastIndex(of: 0x1B), bytes.count - esc >= 3, bytes.count - esc < 8 {
+        // Hold back a tail that could be the start of a sequence we act on.
+        if let esc = bytes.lastIndex(of: 0x1B), bytes.count - esc >= 2, bytes.count - esc < 8 {
             let tail = Array(bytes[esc...])
-            if Self.altExitSequences.contains(where: { $0.count > tail.count && $0.starts(with: tail) }) {
+            if Self.watchedSequences.contains(where: { $0.count > tail.count && $0.starts(with: tail) }) {
                 carry = tail
                 bytes.removeLast(tail.count)
             }
         }
+        if Self.keepScrollbackOnErase { bytes = Self.removingEraseScrollback(bytes) }
+        guard Self.captureAlternateScreen else {
+            if !bytes.isEmpty { view?.feed(byteArray: bytes[...]) }
+            notifyOutput()
+            return
+        }
         feedCapturingAltExit(bytes)
         notifyOutput()
+    }
+
+    private static var watchedSequences: [[UInt8]] { altExitSequences + [eraseScrollback] }
+
+    /// Removes every ESC[3J; everything else passes through unchanged.
+    static func removingEraseScrollback(_ bytes: [UInt8]) -> [UInt8] {
+        let seq = eraseScrollback
+        guard bytes.count >= seq.count, bytes.contains(0x1B) else { return bytes }
+        var out: [UInt8] = []
+        out.reserveCapacity(bytes.count)
+        var i = 0
+        while i < bytes.count {
+            if bytes[i] == 0x1B, bytes.count - i >= seq.count, bytes[i ..< i + seq.count].elementsEqual(seq) {
+                i += seq.count
+                continue
+            }
+            out.append(bytes[i])
+            i += 1
+        }
+        return out
     }
 
     private func notifyOutput() {

@@ -17,6 +17,7 @@ enum MainMenu {
         shell.addItem(item("Rename Session…", #selector(AppDelegate.renameSession(_:)), "r", [.command, .shift], target: target))
         shell.addItem(.separator())
         shell.addItem(item("Reset Terminal", #selector(AppDelegate.resetTerminal(_:)), "r", [.command, .option], target: target))
+        shell.addItem(item("Show Shell History", #selector(AppDelegate.showShellHistory(_:)), "h", [.command, .shift], target: target))
         shell.addItem(item("Show Session Logs in Finder", #selector(AppDelegate.showSessionLogs(_:)), "l", [.command, .shift], target: target))
         main.addItem(submenu: shell, title: "Shell")
 
