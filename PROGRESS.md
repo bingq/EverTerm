@@ -42,7 +42,7 @@
 ## 2026-11-11: step 4a, session sidebar (issue #11)
 - One main window: NSSplitViewController with a SwiftUI sidebar (SidebarView) and a container that shows one TerminalView at a time. Background sessions keep running.
 - SessionModel = one session (terminal view, TerminalSession, names, status). SessionStore = list + selection + rename state; refreshes names once a second.
-- Automatic name: foreground process group of the pty (tcgetpgrp) -> proc_name, plus the program's title: "et · <title>", or "local zsh" at the shell prompt. Subtitle: shell's current directory (proc_pidinfo PROC_PIDVNODEPATHINFO) + start time, or exit code + end time.
+- Automatic name: the foreground program's title alone (#13 dropped the "ssh · " prefix); program name (tcgetpgrp -> proc_name) only if it sets no title; "local zsh" at the shell prompt. Subtitle: shell's current directory (proc_pidinfo PROC_PIDVNODEPATHINFO) + start time, or exit code + end time.
 - Rename: double-click, context menu, or ⌘⇧R; Enter saves, Esc cancels; empty name or the automatic name clears it. Saved as customName in meta.json.
 - Dots: green running, orange connection dropped (set by the foreground rescue, cleared when the next program starts), grey exit 0, red error or signal; blue unseen-output dot (TerminalSession.onOutput, at most every 0.5 s).
 - TerminalWindowController removed; its delegate code moved into SessionModel.

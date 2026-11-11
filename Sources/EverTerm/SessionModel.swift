@@ -20,7 +20,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     let startedAt = Date()
     private(set) var session: TerminalSession!
 
-    /// Built from the foreground program and its title, e.g. "et · claude", "local zsh".
+    /// The foreground program's title (e.g. "Cross-screen text generation"); the program
+    /// name (e.g. "ssh") only when it sets no title; "local zsh" at the shell prompt.
     @Published private(set) var autoName: String
     /// Set by Rename. nil = use the automatic name.
     @Published var customName: String? = nil {
@@ -87,7 +88,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         var name = "local " + shellName
         if foreground != shell, let program = ProcessInspector.name(of: foreground) {
             if programDropped { programDropped = false }
-            name = title.isEmpty ? program : "\(program) · \(title)"
+            name = title.isEmpty ? program : title   // title alone, no "program · " prefix (#13)
         }
         if name != autoName { autoName = name }
     }
