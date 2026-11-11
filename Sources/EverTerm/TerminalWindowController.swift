@@ -1,15 +1,21 @@
 import AppKit
 import SwiftTerm
 
-/// One window = one terminal session running the user's login shell.
-/// Step 1: the window stays open (and scrollable) after the shell/remote exits.
-final class TerminalWindowController: NSWindowController, NSWindowDelegate, LocalProcessTerminalViewDelegate {
-    let terminalView: LocalProcessTerminalView
+/// One window = one terminal session.
+/// The window stays open and scrollable after the shell or remote host ends,
+/// and the full output is already on disk (see SessionLogger).
+final class TerminalWindowController: NSWindowController, NSWindowDelegate, TerminalViewDelegate {
+    /// Lines kept in memory per window. Costs ~8 bytes/line up front for slots;
+    /// line content is allocated only as output arrives. Disk log has no limit.
+    static let scrollbackLines = 1_000_000
+
+    let terminalView: TerminalView
+    private var session: TerminalSession!
     var onClose: ((TerminalWindowController) -> Void)?
 
     init() {
         let frame = NSRect(x: 0, y: 0, width: 900, height: 600)
-        terminalView = LocalProcessTerminalView(frame: frame)
+        terminalView = TerminalView(frame: frame)
 
         let window = NSWindow(
             contentRect: frame,
@@ -24,48 +30,59 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Loca
         window.delegate = self
 
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        terminalView.changeScrollback(100_000)   // step 2 makes this unlimited + disk-backed
-        terminalView.processDelegate = self
+        terminalView.changeScrollback(Self.scrollbackLines)
+        terminalView.terminalDelegate = self
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let execName = "-" + (shell as NSString).lastPathComponent   // leading "-" = login shell
-        terminalView.startProcess(
-            executable: shell,
-            args: [],
-            environment: Terminal.getEnvironmentVariables(termName: "xterm-256color"),
-            execName: execName,
-            currentDirectory: NSHomeDirectory()
-        )
+        session = TerminalSession(view: terminalView, command: shell)
+        session.onExit = { [weak self] code in self?.sessionEnded(exitCode: code) }
+        session.start(executable: shell, args: [], execName: execName, directory: NSHomeDirectory())
         window.makeFirstResponder(terminalView)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    // MARK: LocalProcessTerminalViewDelegate
+    var sessionDirectory: URL { session.logger.directory }
 
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
+    private func sessionEnded(exitCode: Int32?) {
+        // Leave alternate screen, turn off mouse/scroll tracking and bracketed paste,
+        // show cursor: the cleanup a dropped remote app never sent (the Tabby bug).
+        terminalView.feed(text: "\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1007l\u{1b}[?2004l\u{1b}[?25h")
+        let code = exitCode.map(String.init) ?? "signal"
+        terminalView.feed(text: "\r\n\u{1b}[2m[session ended, exit \(code); history kept in memory and on disk]\u{1b}[0m\r\n")
+        window?.title = (window?.title ?? "EverTerm") + " (ended)"
+    }
 
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+    // MARK: TerminalViewDelegate
+
+    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        session?.resize(cols: newCols, rows: newRows)
+    }
+
+    func setTerminalTitle(source: TerminalView, title: String) {
         window?.title = title.isEmpty ? "EverTerm" : title
+        session?.logger.update(title: title)
     }
 
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-
-    func processTerminated(source: TerminalView, exitCode: Int32?) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            // Leave alternate screen, turn off mouse/scroll tracking and bracketed paste,
-            // show cursor: the cleanup a dropped remote app never sent (the Tabby bug).
-            self.terminalView.feed(text: "\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1007l\u{1b}[?2004l\u{1b}[?25h")
-            let code = exitCode.map(String.init) ?? "signal"
-            self.terminalView.feed(text: "\r\n\u{1b}[2m[session ended, exit \(code); history kept]\u{1b}[0m\r\n")
-            self.window?.title = (self.window?.title ?? "EverTerm") + " (ended)"
-        }
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        session?.logger.update(directory: directory)
     }
+
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        session?.send(data)   // keystrokes are not logged, only host output
+    }
+
+    func scrolled(source: TerminalView, position: Double) {}
+
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+
+    func bell(source: TerminalView) { NSSound.beep() }
 
     // MARK: NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
+        if session.isRunning { session.terminate() }
         onClose?(self)
     }
 }

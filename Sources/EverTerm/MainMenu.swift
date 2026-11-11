@@ -17,6 +17,11 @@ enum MainMenu {
         newItem.target = target
         shellMenu.addItem(newItem)
         shellMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        shellMenu.addItem(.separator())
+        let logsItem = NSMenuItem(title: "Show Session Logs in Finder", action: #selector(AppDelegate.showSessionLogs(_:)), keyEquivalent: "l")
+        logsItem.keyEquivalentModifierMask = [.command, .shift]
+        logsItem.target = target
+        shellMenu.addItem(logsItem)
         shellItem.submenu = shellMenu
         main.addItem(shellItem)
 

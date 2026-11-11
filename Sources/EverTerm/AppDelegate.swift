@@ -18,6 +18,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
     }
 
+    @objc func showSessionLogs(_ sender: Any?) {
+        let root = SessionLogger.rootURL
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(root)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
