@@ -26,6 +26,12 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     private weak var view: TerminalView?
     private var process: LocalProcess!
     private var carry: [UInt8] = []          // partial alt-exit sequence split across reads
+    private var altPrevious: [String]?       // last alt-screen rows seen (for scroll detection)
+    private var altArchive: [String] = []    // lines that scrolled off the top of the alt screen
+    private var altArchiveKeys = Set<Int>()  // de-dup when an app scrolls back over old lines
+    static let altArchiveLimit = 200_000
+    private var trackGeneration = 0
+    private var lastTrack = DispatchTime.now()
     private var foregroundJobRunning = false // a program other than the shell owns the tty
     /// Our own serial queue: process output and foreground checks run in order on it.
     private let queue = DispatchQueue(label: "everterm.session")
@@ -58,14 +64,16 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     func terminate() { process.terminate() }
 
-    /// Called on the main thread after the process ends: save the alternate
+    /// Called after the process ends (any thread; work runs on the session queue): save the alternate
     /// screen if the app was still in it, then reset stuck modes.
     func finishScreen(banner: String) {
-        guard let view else { return }
-        let saved = captureAlternateScreen()
-        view.feed(text: Self.modeReset)
-        if let saved { inject(saved, into: view, reason: "session ended in full-screen mode") }
-        view.feed(text: banner)
+        queue.async {
+            guard let view = self.view else { return }
+            let saved = self.captureAlternateScreen()
+            view.feed(text: Self.modeReset)
+            if let saved { self.inject(saved, into: view, reason: "session ended in full-screen mode") }
+            view.feed(text: banner)
+        }
     }
 
     // MARK: LocalProcessDelegate
@@ -154,6 +162,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
                    bytes.count - i >= $0.count && bytes[i ..< i + $0.count].elementsEqual($0)
                }) {
                 if i > start { view.feed(byteArray: bytes[start ..< i]) }
+                trackAltScroll()
                 let saved = captureAlternateScreen()
                 view.feed(byteArray: bytes[i ..< i + seq.count])
                 if let saved { inject(saved, into: view, reason: "full-screen app exited") }
@@ -164,20 +173,96 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
             i += 1
         }
         if start < bytes.count { view.feed(byteArray: bytes[start...]) }
+        scheduleAltTrack()
     }
 
-    /// Text rows of the alternate screen, or nil if it is not active or blank.
-    private func captureAlternateScreen() -> [String]? {
-        guard Self.captureAlternateScreen,
-              let view,
+    /// Look at the alt screen once output pauses (30 ms), so we compare whole
+    /// frames, not half-drawn ones; but at least every 300 ms during a stream.
+    private func scheduleAltTrack() {
+        trackGeneration &+= 1
+        let generation = trackGeneration
+        if DispatchTime.now().uptimeNanoseconds - lastTrack.uptimeNanoseconds > 300_000_000 {
+            trackAltScroll()
+            return
+        }
+        queue.asyncAfter(deadline: .now() + .milliseconds(30)) { [weak self] in
+            guard let self, self.trackGeneration == generation else { return }
+            self.trackAltScroll()
+        }
+    }
+
+    /// Raw text rows of the alt screen, or nil when the alt screen is not active.
+    private func altRows() -> [String]? {
+        guard let view,
               view.terminalInputStateSnapshot()?.isAlternateBuffer == true,
               let snapshot = view.terminalContentSnapshot(region: .all, buffer: .alt)
         else { return nil }
-        var lines = snapshot.rows.map { row -> String in
+        return snapshot.rows.map { row -> String in
             var s = row.text.replacingOccurrences(of: "\u{0}", with: " ")
             while s.last?.isWhitespace == true { s.removeLast() }
             return s
         }
+    }
+
+    /// Called after each output chunk while a full-screen app runs. If the
+    /// content moved up by N lines since the last look, keep the N lines that
+    /// left the top (like iTerm2's "save lines to scrollback in alternate screen").
+    private func trackAltScroll() {
+        lastTrack = DispatchTime.now()
+        guard Self.captureAlternateScreen, let rows = altRows() else {
+            altPrevious = nil
+            return
+        }
+        defer { altPrevious = rows }
+        guard let previous = altPrevious, previous.count == rows.count,
+              let shift = Self.detectScroll(previous: previous, current: rows)
+        else { return }
+        for index in 0 ..< shift {
+            var hasher = Hasher()
+            hasher.combine(index > 0 ? previous[index - 1] : "")
+            hasher.combine(previous[index])
+            hasher.combine(index + 1 < previous.count ? previous[index + 1] : "")
+            guard altArchiveKeys.insert(hasher.finalize()).inserted else { continue }
+            altArchive.append(previous[index])
+        }
+        if altArchive.count > Self.altArchiveLimit {
+            altArchive.removeFirst(altArchive.count - Self.altArchiveLimit)
+        }
+    }
+
+    /// Smallest-error upward shift s such that current[i] == previous[i + s]
+    /// for most non-blank rows. Fixed rows (an app's footer or input box) just
+    /// count as misses. Returns nil when the screen did not scroll.
+    static func detectScroll(previous: [String], current: [String]) -> Int? {
+        let n = previous.count
+        guard n > 3 else { return nil }
+        var unchanged = 0
+        for i in 0 ..< n where !previous[i].isEmpty && previous[i] == current[i] { unchanged += 1 }
+        var best: (shift: Int, matches: Int)?
+        for shift in 1 ..< n {
+            var matches = 0, compared = 0
+            for i in 0 ..< (n - shift) where !previous[i + shift].isEmpty {
+                compared += 1
+                if current[i] == previous[i + shift] { matches += 1 }
+            }
+            if compared >= 3, matches * 10 >= compared * 6, matches > (best?.matches ?? 0) {
+                best = (shift, matches)
+            }
+        }
+        guard let best, best.matches > unchanged else { return nil }
+        return best.shift
+    }
+
+    /// Everything the full-screen app showed: lines that scrolled off the top,
+    /// then the final screen. Nil if there is nothing. Clears the archive.
+    private func captureAlternateScreen() -> [String]? {
+        guard Self.captureAlternateScreen else { return nil }
+        trackAltScroll()
+        var lines = altArchive
+        lines.append(contentsOf: altRows() ?? [])
+        altArchive = []
+        altArchiveKeys = []
+        altPrevious = nil
         while lines.last?.isEmpty == true { lines.removeLast() }
         while lines.first?.isEmpty == true { lines.removeFirst() }
         return lines.isEmpty ? nil : lines

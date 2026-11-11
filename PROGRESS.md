@@ -34,3 +34,7 @@
 - Cause: only the foreground program (et) died; EverTerm's own shell lived on, so the step 3 end-of-session rescue never ran. Claude's full-screen modes (alt screen, mouse tracking) stayed on, and the local prompt was drawn on the alt screen, which has no scrollback.
 - Fix: TerminalSession now runs LocalProcess on its own serial queue and, before feeding each output chunk, checks the tty's foreground process group (tcgetpgrp on the pty). When it changes from a program back to the shell while the alt screen or mouse tracking is still on: save the alt screen into scrollback, reset modes (not bracketed paste, which the shell sets itself), then feed the shell's prompt on the normal screen.
 - Added Shell → Reset Terminal (⌥⌘R): manual version of the same rescue.
+
+## 2026-11-11: #8 verified, #9 alt-screen scroll capture
+- #8 closed: Mac test 22:59 shows scrollback working after `et` dropped.
+- #9: rescue held only Claude's last screen. Now each alt-screen frame (checked after 30 ms of quiet, at least every 300 ms) is compared with the last one; lines that scroll off the top go to an archive (cap 200k, de-duped by line + neighbours). Rescue replays archive + final screen. finishScreen now runs on the session queue.
