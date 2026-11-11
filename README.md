@@ -19,7 +19,7 @@ swift run            # first run downloads SwiftTerm
 |---|---|---|
 | 1 | Window runs login shell; stays open + scrollable after exit; resets stuck terminal modes on exit | done, untested on Mac |
 | 2 | Every session logged to `~/Library/Application Support/EverTerm/sessions/<id>/` (raw + plain text + meta); 1M-line scrollback in memory, disk unlimited; Shell → Show Session Logs (⇧⌘L) | done, untested on Mac |
-| 3 | Alternate-screen output copied into scrollback (Claude Code TUI history survives) | todo |
+| 3 | When a full-screen app (vim, less, top, a TUI) leaves the alternate screen, or the session dies inside it, its last screen is copied into scrollback and output.txt | done, untested on Mac |
 | 4 | Tabs + session sidebar (live/ended), reopen ended session read-only, search across sessions | todo |
 | 5 | Restore windows and history after app restart; profiles (e.g. a remote host over `et`) with reconnect | todo |
 

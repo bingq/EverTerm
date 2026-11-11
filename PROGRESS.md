@@ -19,3 +19,12 @@
 - Closing a window terminates its process; the log is closed with end time and exit code.
 - Menu: Shell → Show Session Logs in Finder (⇧⌘L).
 - Not compiled yet (the dev box is Linux). Mac test: run `ls`, quit the shell with `exit`, check the window still scrolls and the folder has the three files.
+
+## 2026-11-11: step 3, alternate-screen capture
+- TerminalSession scans host output for alt-screen exits (ESC[?1049l, ?1047l, ?47l). Before feeding the exit, it copies the alt screen (terminalContentSnapshot(.all, .alt)); after the switch back, it writes that screen into the normal buffer between dim "EverTerm saved screen" markers, so it stays in scrollback.
+- An exit sequence split across two reads is held back (max 7 bytes) and joined with the next read.
+- Session dies while still in the alt screen (dropped ssh / et): finishScreen() saves the screen, resets modes, then prints the ended banner.
+- Saved screen is plain text: SwiftTerm's ansiRepresentation() also emits palette changes that would recolour the terminal. Colour version later.
+- The saved screen is also appended to output.txt; output.raw stays byte-exact.
+- Switch: TerminalSession.captureAlternateScreen (preference UI comes with step 4/5).
+- Mac test: `vim` some text, :q, then scroll up (saved screen above prompt). `ssh` somewhere, run `top`, kill the network or the ssh process; window should show the saved top screen + banner.

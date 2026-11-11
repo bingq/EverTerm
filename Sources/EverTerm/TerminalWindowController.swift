@@ -46,11 +46,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
     var sessionDirectory: URL { session.logger.directory }
 
     private func sessionEnded(exitCode: Int32?) {
-        // Leave alternate screen, turn off mouse/scroll tracking and bracketed paste,
-        // show cursor: the cleanup a dropped remote app never sent (the Tabby bug).
-        terminalView.feed(text: "\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1007l\u{1b}[?2004l\u{1b}[?25h")
         let code = exitCode.map(String.init) ?? "signal"
-        terminalView.feed(text: "\r\n\u{1b}[2m[session ended, exit \(code); history kept in memory and on disk]\u{1b}[0m\r\n")
+        session.finishScreen(banner: "\r\n\u{1b}[2m[session ended, exit \(code); history kept in memory and on disk]\u{1b}[0m\r\n")
         window?.title = (window?.title ?? "EverTerm") + " (ended)"
     }
 

@@ -48,6 +48,12 @@ final class SessionLogger: @unchecked Sendable {
         }
     }
 
+    /// Clean text that goes to output.txt only (raw log stays byte-exact).
+    func appendNote(_ note: String) {
+        let data = Data(note.utf8)
+        queue.async { self.text?.write(data) }
+    }
+
     func update(title: String? = nil, directory: String? = nil) {
         queue.async {
             if let title, !title.isEmpty { self.record.title = title }
