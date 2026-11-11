@@ -38,3 +38,11 @@
 ## 2026-11-11: #8 verified, #9 alt-screen scroll capture
 - #8 closed: Mac test 22:59 shows scrollback working after `et` dropped.
 - #9: rescue held only Claude's last screen. Now each alt-screen frame (checked after 30 ms of quiet, at least every 300 ms) is compared with the last one; lines that scroll off the top go to an archive (cap 200k, de-duped by line + neighbours). Rescue replays archive + final screen. finishScreen now runs on the session queue.
+
+## 2026-11-11: step 4a, session sidebar (issue #11)
+- One main window: NSSplitViewController with a SwiftUI sidebar (SidebarView) and a container that shows one TerminalView at a time. Background sessions keep running.
+- SessionModel = one session (terminal view, TerminalSession, names, status). SessionStore = list + selection + rename state; refreshes names once a second.
+- Automatic name: foreground process group of the pty (tcgetpgrp) -> proc_name, plus the program's title: "et · <title>", or "local zsh" at the shell prompt. Subtitle: shell's current directory (proc_pidinfo PROC_PIDVNODEPATHINFO) + start time, or exit code + end time.
+- Rename: double-click, context menu, or ⌘⇧R; Enter saves, Esc cancels; empty name or the automatic name clears it. Saved as customName in meta.json.
+- Dots: green running, orange connection dropped (set by the foreground rescue, cleared when the next program starts), grey exit 0, red error or signal; blue unseen-output dot (TerminalSession.onOutput, at most every 0.5 s).
+- TerminalWindowController removed; its delegate code moved into SessionModel.

@@ -36,6 +36,10 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     /// Our own serial queue: process output and foreground checks run in order on it.
     private let queue = DispatchQueue(label: "everterm.session")
     var onExit: ((Int32?) -> Void)?
+    /// Main-thread notifications for the sidebar. Set before start().
+    var onOutput: (() -> Void)?            // at most every 0.5 s
+    var onProgramDropped: (() -> Void)?    // a program died without leaving full-screen mode
+    private var lastOutputNotify: UInt64 = 0
 
     init(view: TerminalView, command: String) {
         self.view = view
@@ -61,6 +65,20 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     }
 
     var isRunning: Bool { process.running }
+
+    /// PID of the shell EverTerm started, or nil when it has ended.
+    var shellPID: pid_t? {
+        let pid = process.shellPid
+        return pid > 0 ? pid : nil
+    }
+
+    /// Process group that owns the terminal right now (the shell, or ssh/et/claude...).
+    func foregroundProcessGroup() -> pid_t? {
+        let fd = process.childfd
+        guard fd >= 0 else { return nil }
+        let group = tcgetpgrp(fd)
+        return group > 0 ? group : nil
+    }
 
     func terminate() { process.terminate() }
 
@@ -97,6 +115,15 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
             }
         }
         feedCapturingAltExit(bytes)
+        notifyOutput()
+    }
+
+    private func notifyOutput() {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now &- lastOutputNotify > 500_000_000 else { return }
+        lastOutputNotify = now
+        let handler = onOutput
+        DispatchQueue.main.async { handler?() }
     }
 
     func getWindowSize() -> winsize {
@@ -136,6 +163,8 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
         if !carry.isEmpty { view.feed(byteArray: carry[...]); carry = [] }
         view.feed(text: Self.foregroundModeReset)
         if let saved { inject(saved, into: view, reason: "program ended without leaving full-screen mode") }
+        let dropped = onProgramDropped
+        DispatchQueue.main.async { dropped?() }
     }
 
     /// Manual rescue from the menu: same as the automatic check, forced.

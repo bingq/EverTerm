@@ -20,7 +20,7 @@ swift run            # first run downloads SwiftTerm
 | 1 | Window runs login shell; stays open + scrollable after exit; resets stuck terminal modes on exit | done, untested on Mac |
 | 2 | Every session logged to `~/Library/Application Support/EverTerm/sessions/<id>/` (raw + plain text + meta); 1M-line scrollback in memory, disk unlimited; Shell → Show Session Logs (⇧⌘L) | done, untested on Mac |
 | 3 | When a full-screen app (vim, less, top, a TUI) leaves the alternate screen, or the session dies inside it, its last screen is copied into scrollback and output.txt | done, untested on Mac |
-| 4 | Tabs + session sidebar (live/ended), reopen ended session read-only, search across sessions | todo |
+| 4 | Session sidebar (issue #11): 4a live sessions, auto name + rename, status dots, shortcuts; 4b history from disk + reconnect; 4c search | 4a done, untested on Mac |
 | 5 | Restore windows and history after app restart; profiles (e.g. a remote host over `et`) with reconnect | todo |
 
 ## Where history lives
@@ -33,5 +33,19 @@ swift run            # first run downloads SwiftTerm
 ```
 
 Search all history: `grep -r "text" ~/Library/Application\ Support/EverTerm/sessions/*/output.txt`
+
+## Shortcuts
+
+| Keys | Action |
+|---|---|
+| ⌘T / ⌘N | New session (starts in the selected session's directory) |
+| ⌘W | End the selected session (it moves to Ended); on an ended session, remove it from the list |
+| ⌘⇧R or double-click | Rename (empty name = back to the automatic name) |
+| ⌘1–⌘9, ⌘} / ⌘{ | Jump to session N, next / previous |
+| ⌃⌘S | Show / hide the sidebar |
+| ⌥⌘R | Reset Terminal (rescue a stuck screen) |
+| ⇧⌘L | Show session logs in Finder |
+
+Sidebar dots: green running, orange connection dropped, grey ended (exit 0), red ended with an error; small blue dot = new output not yet seen.
 
 See `PROGRESS.md` for the build log.

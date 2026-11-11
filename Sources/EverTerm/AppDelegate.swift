@@ -1,30 +1,44 @@
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var controllers: [TerminalWindowController] = []
+    private var main: MainWindowController?
+    private var store: SessionStore? { main?.store }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build(target: self)
-        newWindow(nil)
+        let controller = MainWindowController()
+        main = controller
+        controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc func newWindow(_ sender: Any?) {
-        let controller = TerminalWindowController()
-        controller.onClose = { [weak self] closed in
-            self?.controllers.removeAll { $0 === closed }
-        }
-        controllers.append(controller)
-        controller.showWindow(nil)
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
+
+    // MARK: menu actions
+
+    @objc func newSession(_ sender: Any?) { store?.newSession() }
+
+    @objc func closeSession(_ sender: Any?) {
+        if let store, let selected = store.selected { store.close(selected) }
+    }
+
+    @objc func renameSession(_ sender: Any?) { store?.beginRename() }
+
+    @objc func nextSession(_ sender: Any?) { store?.selectNext(1) }
+
+    @objc func previousSession(_ sender: Any?) { store?.selectNext(-1) }
+
+    /// ⌘1–⌘9; the menu item's tag is the 0-based index.
+    @objc func selectSession(_ sender: NSMenuItem) { store?.select(index: sender.tag) }
+
+    @objc func resetTerminal(_ sender: Any?) { store?.selected?.resetTerminal() }
 
     @objc func showSessionLogs(_ sender: Any?) {
         let root = SessionLogger.rootURL
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         NSWorkspace.shared.open(root)
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
     }
 }

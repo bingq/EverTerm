@@ -9,6 +9,7 @@ struct SessionRecord: Codable {
     var startedAt: Date
     var endedAt: Date?
     var exitCode: Int32?
+    var customName: String?      // set when the user renames the session
 }
 
 /// Writes one session to disk as it happens:
@@ -54,10 +55,12 @@ final class SessionLogger: @unchecked Sendable {
         queue.async { self.text?.write(data) }
     }
 
-    func update(title: String? = nil, directory: String? = nil) {
+    /// customName: pass "" to clear it (back to the automatic name).
+    func update(title: String? = nil, directory: String? = nil, customName: String? = nil) {
         queue.async {
             if let title, !title.isEmpty { self.record.title = title }
             if let directory { self.record.directory = directory }
+            if let customName { self.record.customName = customName.isEmpty ? nil : customName }
             self.writeMeta()
         }
     }
