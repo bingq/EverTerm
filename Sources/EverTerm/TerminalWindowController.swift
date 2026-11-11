@@ -17,7 +17,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Loca
             backing: .buffered,
             defer: false
         )
-        window.title = "KeepTerm"
+        window.title = "EverTerm"
         window.contentView = terminalView
         window.center()
         super.init(window: window)
@@ -46,7 +46,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Loca
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        window?.title = title.isEmpty ? "KeepTerm" : title
+        window?.title = title.isEmpty ? "EverTerm" : title
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
@@ -59,7 +59,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Loca
             self.terminalView.feed(text: "\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1007l\u{1b}[?2004l\u{1b}[?25h")
             let code = exitCode.map(String.init) ?? "signal"
             self.terminalView.feed(text: "\r\n\u{1b}[2m[session ended, exit \(code); history kept]\u{1b}[0m\r\n")
-            self.window?.title = (self.window?.title ?? "KeepTerm") + " (ended)"
+            self.window?.title = (self.window?.title ?? "EverTerm") + " (ended)"
         }
     }
 

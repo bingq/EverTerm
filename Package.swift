@@ -3,14 +3,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "KeepTerm",
+    name: "EverTerm",
     platforms: [.macOS(.v13)],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.99.3"),
     ],
     targets: [
         .executableTarget(
-            name: "KeepTerm",
+            name: "EverTerm",
             dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]
         ),
     ]
