@@ -8,7 +8,7 @@ keep their scrollback locally, in memory and on disk, even after the remote host
 Requires Xcode 26 / Swift 6.2 or later (SwiftTerm 1.99.3 needs it).
 
 ```sh
-git clone https://github.com/bingq/EverTermSrc EverTerm && cd EverTerm
+git clone https://github.com/bingq/EverTerm && cd EverTerm
 swift run            # first run downloads SwiftTerm
 # or: open Package.swift   (opens in Xcode, then Run)
 ```
