@@ -18,6 +18,9 @@ enum MainMenu {
         shellMenu.addItem(newItem)
         shellMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         shellMenu.addItem(.separator())
+        let resetItem = NSMenuItem(title: "Reset Terminal", action: #selector(TerminalWindowController.resetTerminal(_:)), keyEquivalent: "r")
+        resetItem.keyEquivalentModifierMask = [.command, .option]
+        shellMenu.addItem(resetItem)   // nil target: goes to the key window's controller
         let logsItem = NSMenuItem(title: "Show Session Logs in Finder", action: #selector(AppDelegate.showSessionLogs(_:)), keyEquivalent: "l")
         logsItem.keyEquivalentModifierMask = [.command, .shift]
         logsItem.target = target

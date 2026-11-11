@@ -51,6 +51,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, Term
         window?.title = (window?.title ?? "EverTerm") + " (ended)"
     }
 
+    @objc func resetTerminal(_ sender: Any?) {
+        session.recoverScreen()
+    }
+
     // MARK: TerminalViewDelegate
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {

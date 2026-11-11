@@ -28,3 +28,9 @@
 - The saved screen is also appended to output.txt; output.raw stays byte-exact.
 - Switch: TerminalSession.captureAlternateScreen (preference UI comes with step 4/5).
 - Mac test: `vim` some text, :q, then scroll up (saved screen above prompt). `ssh` somewhere, run `top`, kill the network or the ssh process; window should show the saved top screen + banner.
+
+## 2026-11-11: fix, no scrollback after `et` dropped (first Mac test)
+- Bing's test: Claude Code over `et`, session killed. ET printed "Session terminated", the local zsh prompt came back, but nothing scrolled.
+- Cause: only the foreground program (et) died; EverTerm's own shell lived on, so the step 3 end-of-session rescue never ran. Claude's full-screen modes (alt screen, mouse tracking) stayed on, and the local prompt was drawn on the alt screen, which has no scrollback.
+- Fix: TerminalSession now runs LocalProcess on its own serial queue and, before feeding each output chunk, checks the tty's foreground process group (tcgetpgrp on the pty). When it changes from a program back to the shell while the alt screen or mouse tracking is still on: save the alt screen into scrollback, reset modes (not bracketed paste, which the shell sets itself), then feed the shell's prompt on the normal screen.
+- Added Shell → Reset Terminal (⌥⌘R): manual version of the same rescue.

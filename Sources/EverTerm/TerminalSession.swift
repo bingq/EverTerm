@@ -14,6 +14,11 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     private static let altExitSequences: [[UInt8]] =
         ["\u{1b}[?1049l", "\u{1b}[?1047l", "\u{1b}[?47l"].map { Array($0.utf8) }
 
+    /// Modes left on when a foreground program dies inside the tab but the shell
+    /// lives on (e.g. `et` drops). Bracketed paste (2004) is left alone: the
+    /// shell turns it on itself for its own prompt.
+    static let foregroundModeReset = "\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1007l\u{1b}[?25h"
+
     /// Modes a dropped remote app never got to switch off (the Tabby bug).
     static let modeReset = "\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1007l\u{1b}[?2004l\u{1b}[?25h"
 
@@ -21,12 +26,15 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     private weak var view: TerminalView?
     private var process: LocalProcess!
     private var carry: [UInt8] = []          // partial alt-exit sequence split across reads
+    private var foregroundJobRunning = false // a program other than the shell owns the tty
+    /// Our own serial queue: process output and foreground checks run in order on it.
+    private let queue = DispatchQueue(label: "everterm.session")
     var onExit: ((Int32?) -> Void)?
 
     init(view: TerminalView, command: String) {
         self.view = view
         self.logger = SessionLogger(command: command)
-        self.process = LocalProcess(delegate: self)
+        self.process = LocalProcess(delegate: self, dispatchQueue: queue)
     }
 
     func start(executable: String, args: [String], execName: String?, directory: String?) {
@@ -64,6 +72,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     func dataReceived(slice: ArraySlice<UInt8>) {
         logger.append(slice)
+        checkForegroundReturnedToShell()
         guard Self.captureAlternateScreen else {
             view?.feed(byteArray: slice)
             return
@@ -92,6 +101,43 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
         logger.finish(exitCode: exitCode)
         let handler = onExit
         DispatchQueue.main.async { handler?(exitCode) }
+    }
+
+    // MARK: foreground program ended (shell still alive)
+
+    /// When a program run from the shell (ssh, et, claude...) ends and the
+    /// shell takes the terminal back, the next output is the shell's prompt.
+    /// If the program died without leaving full-screen mode, save that screen
+    /// and reset modes now, before the prompt is drawn, so the prompt lands on
+    /// the normal screen and scrollback works again.
+    private func checkForegroundReturnedToShell() {
+        let fd = process.childfd
+        let shell = process.shellPid
+        guard fd >= 0, shell > 0 else { return }
+        let foreground = tcgetpgrp(fd)
+        guard foreground > 0 else { return }
+        if foreground != shell {
+            foregroundJobRunning = true
+            return
+        }
+        guard foregroundJobRunning else { return }
+        foregroundJobRunning = false
+        guard let view, let state = view.terminalInputStateSnapshot() else { return }
+        guard state.isAlternateBuffer || state.mouseMode != .off else { return }
+        let saved = captureAlternateScreen()
+        if !carry.isEmpty { view.feed(byteArray: carry[...]); carry = [] }
+        view.feed(text: Self.foregroundModeReset)
+        if let saved { inject(saved, into: view, reason: "program ended without leaving full-screen mode") }
+    }
+
+    /// Manual rescue from the menu: same as the automatic check, forced.
+    func recoverScreen() {
+        queue.async {
+            guard let view = self.view else { return }
+            let saved = self.captureAlternateScreen()
+            view.feed(text: Self.foregroundModeReset)
+            if let saved { self.inject(saved, into: view, reason: "Reset Terminal") }
+        }
     }
 
     // MARK: alternate screen capture
