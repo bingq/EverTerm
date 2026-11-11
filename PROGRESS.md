@@ -47,3 +47,9 @@
 - Dots: green running, orange connection dropped (set by the foreground rescue, cleared when the next program starts), grey exit 0, red error or signal; blue unseen-output dot (TerminalSession.onOutput, at most every 0.5 s).
 - TerminalWindowController removed; its delegate code moved into SessionModel.
 - Build fix: main.swift (nonisolated top-level code) could not create the @MainActor AppDelegate. Replaced with an @main @MainActor entry point (EverTermMain.swift); delegate kept alive with withExtendedLifetime because NSApplication.delegate is weak.
+
+## 2026-11-11: #12 always-visible scroll bar
+- SessionModel sets terminalView.scrollerStyle = .legacy before the shell starts (SwiftTerm 1.99.3 default is .overlay: hidden until you scroll, takes no width).
+- Checked in SwiftTerm 1.99.3 source: .legacy reserves NSScroller.scrollerWidth from the terminal width, so the column count shrinks and no text sits under the bar (R4). On the alternate screen canScroll is false and the knob size is 0, so the bar is disabled instead of scrolling the hidden normal buffer (R5). Knob, track and wheel use SwiftTerm's own scroller wiring (R2, R3).
+- R6 (overlay style setting) waits for step 5 preferences. R7 (history view) comes with 4b.
+- Not compiled here (the dev box is Linux). Mac test: checklist in issue #12.

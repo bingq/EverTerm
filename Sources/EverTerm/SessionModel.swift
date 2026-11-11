@@ -57,6 +57,9 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         terminalView.changeScrollback(Self.scrollbackLines)
+        // #12: always-visible scroll bar. SwiftTerm narrows the columns by its width
+        // and disables it on the alternate screen. Overlay style becomes a setting in step 5.
+        terminalView.scrollerStyle = .legacy
         terminalView.autoresizingMask = [.width, .height]
         terminalView.terminalDelegate = self
 
