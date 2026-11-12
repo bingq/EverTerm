@@ -1,4 +1,5 @@
 import AppKit
+import EverTermCore
 import SwiftTerm
 
 /// #14: read-only view of the normal screen's history, shown over the terminal
@@ -121,13 +122,16 @@ private final class HistoryTextView: NSTextView {
         [.pageUp, .pageDown, .home, .end, .upArrow, .downArrow, .leftArrow, .rightArrow]
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onEscape?(); return }   // Esc
-        if event.modifierFlags.contains(.command) { super.keyDown(with: event); return }
-        if let key = event.specialKey, Self.navigationKeys.contains(key) {
-            super.keyDown(with: event)
-            return
+        let key: HistoryPanelRules.Key
+        if event.keyCode == 53 { key = .escape }
+        else if event.modifierFlags.contains(.command) { key = .command }
+        else if let special = event.specialKey, Self.navigationKeys.contains(special) { key = .navigation }
+        else { key = .other }
+        switch HistoryPanelRules.action(for: key) {
+        case .close: onEscape?()
+        case .keepInPanel: super.keyDown(with: event)
+        case .closeAndForward: onTyping?(event)
         }
-        onTyping?(event)
     }
 }
 
@@ -144,7 +148,8 @@ private final class HistoryScrollView: NSScrollView {
     override func scrollWheel(with event: NSEvent) {
         let wasAtEnd = isAtEnd
         super.scrollWheel(with: event)
-        if wasAtEnd, event.scrollingDeltaY < 0, event.momentumPhase.isEmpty {
+        if HistoryPanelRules.closesOnScroll(wasAtEnd: wasAtEnd, deltaY: Double(event.scrollingDeltaY),
+                                            momentum: !event.momentumPhase.isEmpty) {
             onScrolledPastEnd?()
         }
     }

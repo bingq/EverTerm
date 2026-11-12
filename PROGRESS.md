@@ -64,3 +64,11 @@
 ## 2026-11-11: repos renamed
 - Source: bingq/everterm -> bingq/EverTermSrc (private). Public site: bingq/EverTerm (GitHub Pages https://bingq.github.io/EverTerm/: home, support, privacy policy for App Store Connect).
 - The old `everterm` redirect is gone because the public repo now has that name. Existing clones must run: git remote set-url origin https://github.com/bingq/EverTermSrc.git
+
+## 2026-11-12: #9 capture fix, EverTermCore + unit tests
+- Mac runs: streaming 300 lines kept every line but repeated one where the archive met the final screen; scrolling inside Claude while it printed added ~22 junk lines (the prompt Claude pins to the top row, re-saved on every scroll).
+- New target EverTermCore (no AppKit/SwiftTerm): AltScreenTracker (scroll detection, archive, join), TerminalBytes (ESC[3J filter), HistoryPanelRules (#14 key/scroll rules). The app maps NSEvents to these.
+- Fix: pinned top rows (identical in both frames) are skipped before looking for a scroll; de-dup key = line + the two lines after it; on capture, already-archived pinned rows are dropped and the archive/final-screen overlap appears once.
+- Tests: `swift test` (EverTermCoreTests): made-up Claude-style streams (footer, pinned prompt, scrolling back, vim paging, join), and one rule test per #12/#14 behaviour already verified on the Mac. The pinned-prompt tests fail on the old logic and pass now.
+- Replay of real session frames (ReplayTests) runs only when EVERTERM_REPLAY_DIR points at exported frames; session logs are private and not in the repo. On the two Mac runs: run 2 = 300/300 in order, no repeats; run 1 (scrolled inside Claude) = 299 lines, 2 missing, 1 repeated, no repeated prompt.
+- App code not compiled here (the dev box is Linux); EverTermCore and its tests were built and run with Swift 6.1.2 on Linux.

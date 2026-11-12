@@ -10,6 +10,7 @@ Requires Xcode 26 / Swift 6.2 or later (SwiftTerm 1.99.3 needs it).
 ```sh
 git clone https://github.com/bingq/EverTerm && cd EverTerm
 swift run            # first run downloads SwiftTerm
+swift test           # unit tests for the core logic (EverTermCore)
 # or: open Package.swift   (opens in Xcode, then Run)
 ```
 

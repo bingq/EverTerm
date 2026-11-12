@@ -9,9 +9,12 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.99.3"),
     ],
     targets: [
+        // Logic with no AppKit or SwiftTerm, so it can be unit-tested anywhere (`swift test`).
+        .target(name: "EverTermCore"),
         .executableTarget(
             name: "EverTerm",
-            dependencies: [.product(name: "SwiftTerm", package: "SwiftTerm")]
+            dependencies: ["EverTermCore", .product(name: "SwiftTerm", package: "SwiftTerm")]
         ),
+        .testTarget(name: "EverTermCoreTests", dependencies: ["EverTermCore"]),
     ]
 )

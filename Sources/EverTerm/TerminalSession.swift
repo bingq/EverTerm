@@ -1,5 +1,6 @@
 import Foundation
 import SwiftTerm
+import EverTermCore
 
 /// Owns the child process (shell, ssh, et...) for one terminal.
 /// Every byte from the host goes to the disk logger first, then to the screen,
@@ -14,7 +15,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     /// can delete the history. ESC[2J (clear the visible screen) still works.
     /// output.raw keeps the byte; only the screen ignores it.
     static var keepScrollbackOnErase = true
-    private static let eraseScrollback: [UInt8] = Array("\u{1b}[3J".utf8)
+    private static let eraseScrollback = TerminalBytes.eraseScrollback
 
     /// Sequences that leave the alternate screen.
     private static let altExitSequences: [[UInt8]] =
@@ -32,10 +33,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     private weak var view: TerminalView?
     private var process: LocalProcess!
     private var carry: [UInt8] = []          // partial alt-exit sequence split across reads
-    private var altPrevious: [String]?       // last alt-screen rows seen (for scroll detection)
-    private var altArchive: [String] = []    // lines that scrolled off the top of the alt screen
-    private var altArchiveKeys = Set<Int>()  // de-dup when an app scrolls back over old lines
-    static let altArchiveLimit = 200_000
+    private var altTracker = AltScreenTracker()  // what the full-screen app has shown (#9)
     private var trackGeneration = 0
     private var lastTrack = DispatchTime.now()
     private var foregroundJobRunning = false // a program other than the shell owns the tty
@@ -134,20 +132,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     /// Removes every ESC[3J; everything else passes through unchanged.
     static func removingEraseScrollback(_ bytes: [UInt8]) -> [UInt8] {
-        let seq = eraseScrollback
-        guard bytes.count >= seq.count, bytes.contains(0x1B) else { return bytes }
-        var out: [UInt8] = []
-        out.reserveCapacity(bytes.count)
-        var i = 0
-        while i < bytes.count {
-            if bytes[i] == 0x1B, bytes.count - i >= seq.count, bytes[i ..< i + seq.count].elementsEqual(seq) {
-                i += seq.count
-                continue
-            }
-            out.append(bytes[i])
-            i += 1
-        }
-        return out
+        TerminalBytes.removingEraseScrollback(bytes)
     }
 
     private func notifyOutput() {
@@ -265,53 +250,15 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
         }
     }
 
-    /// Called after each output chunk while a full-screen app runs. If the
-    /// content moved up by N lines since the last look, keep the N lines that
-    /// left the top (like iTerm2's "save lines to scrollback in alternate screen").
+    /// Called after each settled frame while a full-screen app runs; the
+    /// tracker keeps the lines that scroll off the top (#9).
     private func trackAltScroll() {
         lastTrack = DispatchTime.now()
         guard Self.captureAlternateScreen, let rows = altRows() else {
-            altPrevious = nil
+            altTracker.screenGone()
             return
         }
-        defer { altPrevious = rows }
-        guard let previous = altPrevious, previous.count == rows.count,
-              let shift = Self.detectScroll(previous: previous, current: rows)
-        else { return }
-        for index in 0 ..< shift {
-            var hasher = Hasher()
-            hasher.combine(index > 0 ? previous[index - 1] : "")
-            hasher.combine(previous[index])
-            hasher.combine(index + 1 < previous.count ? previous[index + 1] : "")
-            guard altArchiveKeys.insert(hasher.finalize()).inserted else { continue }
-            altArchive.append(previous[index])
-        }
-        if altArchive.count > Self.altArchiveLimit {
-            altArchive.removeFirst(altArchive.count - Self.altArchiveLimit)
-        }
-    }
-
-    /// Smallest-error upward shift s such that current[i] == previous[i + s]
-    /// for most non-blank rows. Fixed rows (an app's footer or input box) just
-    /// count as misses. Returns nil when the screen did not scroll.
-    static func detectScroll(previous: [String], current: [String]) -> Int? {
-        let n = previous.count
-        guard n > 3 else { return nil }
-        var unchanged = 0
-        for i in 0 ..< n where !previous[i].isEmpty && previous[i] == current[i] { unchanged += 1 }
-        var best: (shift: Int, matches: Int)?
-        for shift in 1 ..< n {
-            var matches = 0, compared = 0
-            for i in 0 ..< (n - shift) where !previous[i + shift].isEmpty {
-                compared += 1
-                if current[i] == previous[i + shift] { matches += 1 }
-            }
-            if compared >= 3, matches * 10 >= compared * 6, matches > (best?.matches ?? 0) {
-                best = (shift, matches)
-            }
-        }
-        guard let best, best.matches > unchanged else { return nil }
-        return best.shift
+        altTracker.observe(rows)
     }
 
     /// Everything the full-screen app showed: lines that scrolled off the top,
@@ -319,14 +266,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     private func captureAlternateScreen() -> [String]? {
         guard Self.captureAlternateScreen else { return nil }
         trackAltScroll()
-        var lines = altArchive
-        lines.append(contentsOf: altRows() ?? [])
-        altArchive = []
-        altArchiveKeys = []
-        altPrevious = nil
-        while lines.last?.isEmpty == true { lines.removeLast() }
-        while lines.first?.isEmpty == true { lines.removeFirst() }
-        return lines.isEmpty ? nil : lines
+        return altTracker.capture(finalRows: altRows())
     }
 
     /// Plain text on purpose: SwiftTerm's ANSI export also rewrites the palette.

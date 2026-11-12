@@ -1,4 +1,5 @@
 import AppKit
+import EverTermCore
 import Combine
 import SwiftUI
 
@@ -75,16 +76,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     /// True when the event was used to open the panel (and should not reach the terminal).
     private func openHistoryOnShiftScroll(_ event: NSEvent) -> Bool {
-        guard historyPanel == nil, event.window === window,
-              event.modifierFlags.contains(.shift),
-              let terminal = store.selected?.terminalView,
-              terminal.terminalInputStateSnapshot()?.isAlternateBuffer == true,
-              terminal.bounds.contains(terminal.convert(event.locationInWindow, from: nil))
-        else { return false }
-        // A mouse wheel with Shift held reports a horizontal scroll; a trackpad keeps it vertical.
-        let delta = event.scrollingDeltaY != 0 || event.hasPreciseScrollingDeltas
-            ? event.scrollingDeltaY : event.scrollingDeltaX
-        guard delta > 0, event.momentumPhase.isEmpty else { return false }   // up, finger on the pad
+        guard event.window === window, let terminal = store.selected?.terminalView else { return false }
+        let opens = HistoryPanelRules.opensOnScroll(
+            panelOpen: historyPanel != nil,
+            shift: event.modifierFlags.contains(.shift),
+            alternateScreen: terminal.terminalInputStateSnapshot()?.isAlternateBuffer == true,
+            overTerminal: terminal.bounds.contains(terminal.convert(event.locationInWindow, from: nil)),
+            deltaY: Double(event.scrollingDeltaY), deltaX: Double(event.scrollingDeltaX),
+            precise: event.hasPreciseScrollingDeltas, momentum: !event.momentumPhase.isEmpty)
+        guard opens else { return false }
         showShellHistory()
         return historyPanel != nil
     }
