@@ -189,4 +189,41 @@ final class AltScreenTrackerTests: XCTestCase {
         XCTAssertEqual(back.down, 3)
         XCTAssertEqual(back.rewound, 3)
     }
+
+    /// #16: peek shows everything so far and changes nothing, so the save on exit is unchanged.
+    func testPeekMatchesCaptureAndChangesNothing() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 30, header: "❯ print 300 numbered lines", footer: footer, transcript: ["● ok"])
+        t.observe(app.screen())
+        stream(&app, &t, count: 300, perFrame: 4)
+        let archiveBefore = t.archive
+        let peeked = t.peek()
+        XCTAssertEqual(t.archive, archiveBefore)
+        XCTAssertEqual(numbers(peeked), Array(1 ... 300))
+        XCTAssertEqual(peeked, t.peek())                        // peeking twice is the same
+        XCTAssertEqual(t.capture(finalRows: app.screen()), peeked)
+    }
+
+    /// #16: halfway through a stream, peek has every line so far.
+    func testPeekMidStream() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 30, header: nil, footer: footer, transcript: ["❯ go"])
+        t.observe(app.screen())
+        stream(&app, &t, count: 120, perFrame: 3)
+        XCTAssertEqual(numbers(t.peek()), Array(1 ... 120))
+        stream(&app, &t, count: 300, perFrame: 3)
+        XCTAssertEqual(numbers(t.capture(finalRows: app.screen()) ?? []), Array(1 ... 300))
+    }
+
+    /// Quitting (or peeking) while scrolled back inside the app must not append the
+    /// older lines on screen below the newest ones.
+    func testScrolledBackAtExitKeepsOrder() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 30, header: nil, footer: footer, transcript: ["❯ go"])
+        t.observe(app.screen())
+        stream(&app, &t, count: 300, perFrame: 5)
+        for back in stride(from: 5, through: 120, by: 5) { app.scrolledBack = back; t.observe(app.screen()) }
+        assertAll300(t.peek())
+        assertAll300(t.capture(finalRows: app.screen()) ?? [])
+    }
 }

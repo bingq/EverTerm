@@ -4,7 +4,9 @@ import SwiftTerm
 
 /// #14: read-only view of the normal screen's history, shown over the terminal
 /// while a full-screen app (Claude Code, vim, less) owns the alternate screen.
-/// The history does not change while the app runs, so a snapshot is enough.
+/// #16: below a divider it also shows what the app has shown so far, so you can
+/// select and copy across screens (drag, Shift-click, ⌘A, ⌘C).
+/// It is a snapshot taken when it opens; reopen it for newer output.
 /// Closes on Esc, on scrolling down past the bottom, or when you type (the key
 /// goes to the app).
 @MainActor
@@ -17,9 +19,9 @@ final class ShellHistoryPanel: NSView {
     private let textView = HistoryTextView()
     private weak var terminal: TerminalView?
 
-    /// The normal screen's rows as plain text, or nil when it has nothing to show.
-    static func lines(of terminal: TerminalView) -> [String]? {
-        guard let snapshot = terminal.terminalContentSnapshot(region: .all, buffer: .normal) else { return nil }
+    /// The normal screen's rows as plain text (empty when it has nothing to show).
+    static func lines(of terminal: TerminalView) -> [String] {
+        guard let snapshot = terminal.terminalContentSnapshot(region: .all, buffer: .normal) else { return [] }
         var lines = snapshot.rows.map { row -> String in
             var text = row.text.replacingOccurrences(of: "\u{0}", with: " ")
             while text.last?.isWhitespace == true { text.removeLast() }
@@ -28,10 +30,10 @@ final class ShellHistoryPanel: NSView {
         while lines.last?.isEmpty == true { lines.removeLast() }
         while lines.first?.isEmpty == true { lines.removeFirst() }
         if lines.count > lineLimit { lines.removeFirst(lines.count - lineLimit) }
-        return lines.isEmpty ? nil : lines
+        return lines
     }
 
-    init(lines: [String], terminal: TerminalView, frame: NSRect) {
+    init(lines: [String], hasApp: Bool, terminal: TerminalView, frame: NSRect) {
         self.terminal = terminal
         super.init(frame: frame)
         autoresizingMask = [.width, .height]
@@ -42,8 +44,7 @@ final class ShellHistoryPanel: NSView {
 
         // Header: what this is and how to leave.
         let headerHeight: CGFloat = 26
-        let header = NSTextField(labelWithString:
-            "Shell history before this program · read-only · Esc, scroll down past the end, or type to go back")
+        let header = NSTextField(labelWithString: HistoryPanelContent.header(hasApp: hasApp))
         header.font = NSFont.systemFont(ofSize: 11)
         header.textColor = .secondaryLabelColor
         header.lineBreakMode = .byTruncatingTail

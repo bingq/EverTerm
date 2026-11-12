@@ -11,6 +11,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     private var selection: AnyCancellable?
     private var scrollMonitor: Any?
     private var historyPanel: ShellHistoryPanel?
+    private var historyOpening = false   // #16: waiting for the session to build the panel text
 
     init() {
         let store = SessionStore()
@@ -64,21 +65,35 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: shell history panel (#14)
 
     /// Shell → Show Shell History (⇧⌘H). Works on any screen; most useful in a full-screen app.
+    /// #16: also shows what the app has shown so far. Opens once the session has built
+    /// that list (a moment later, off the main thread).
     func showShellHistory() {
-        guard historyPanel == nil, let terminal = store.selected?.terminalView else { return }
-        guard let lines = ShellHistoryPanel.lines(of: terminal) else { NSSound.beep(); return }
-        let panel = ShellHistoryPanel(lines: lines, terminal: terminal, frame: container.view.bounds)
-        panel.onClose = { [weak self] in self?.historyPanel = nil }
-        historyPanel = panel
-        container.view.addSubview(panel, positioned: .above, relativeTo: terminal)
-        panel.present()
+        guard historyPanel == nil, !historyOpening, let model = store.selected else { return }
+        let terminal = model.terminalView
+        let shell = ShellHistoryPanel.lines(of: terminal)
+        historyOpening = true
+        model.session.capturedSoFar { [weak self] app in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.historyOpening = false
+                guard self.historyPanel == nil, self.store.selected === model else { return }
+                let lines = HistoryPanelContent.lines(shell: shell, app: app, appName: model.displayName)
+                guard !lines.isEmpty else { NSSound.beep(); return }
+                let panel = ShellHistoryPanel(lines: lines, hasApp: !app.isEmpty, terminal: terminal,
+                                              frame: self.container.view.bounds)
+                panel.onClose = { [weak self] in self?.historyPanel = nil }
+                self.historyPanel = panel
+                self.container.view.addSubview(panel, positioned: .above, relativeTo: terminal)
+                panel.present()
+            }
+        }
     }
 
     /// True when the event was used to open the panel (and should not reach the terminal).
     private func openHistoryOnShiftScroll(_ event: NSEvent) -> Bool {
         guard event.window === window, let terminal = store.selected?.terminalView else { return false }
         let opens = HistoryPanelRules.opensOnScroll(
-            panelOpen: historyPanel != nil,
+            panelOpen: historyPanel != nil || historyOpening,
             shift: event.modifierFlags.contains(.shift),
             alternateScreen: terminal.terminalInputStateSnapshot()?.isAlternateBuffer == true,
             overTerminal: terminal.bounds.contains(terminal.convert(event.locationInWindow, from: nil)),
@@ -86,7 +101,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             precise: event.hasPreciseScrollingDeltas, momentum: !event.momentumPhase.isEmpty)
         guard opens else { return false }
         showShellHistory()
-        return historyPanel != nil
+        return historyOpening || historyPanel != nil
     }
 
     func windowWillClose(_ notification: Notification) {

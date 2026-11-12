@@ -233,6 +233,15 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
         }
     }
 
+    /// #16: what the full-screen app has shown so far, for the history panel.
+    /// Built on the session queue (never blocks the UI); `done` runs on the main thread.
+    func capturedSoFar(_ done: @escaping ([String]) -> Void) {
+        queue.async {
+            let lines = Self.captureAlternateScreen ? self.altTracker.peek() : []
+            DispatchQueue.main.async { done(lines) }
+        }
+    }
+
     /// Raw text rows of the alt screen, or nil when the alt screen is not active.
     private func altRows() -> [String]? {
         guard let view,

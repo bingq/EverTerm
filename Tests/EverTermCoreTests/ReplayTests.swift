@@ -70,4 +70,25 @@ final class ReplayTests: XCTestCase {
         }
         XCTAssertEqual(nums, Array(1 ... 300))
     }
+
+    /// #16: at any point during a run, the panel's "captured so far" is correct so far:
+    /// the numbers are 1...k in order with no repeats.
+    func testPeekDuringRuns() throws {
+        for (name, suffix) in [("run1", ""), ("run4", " line for testing for my wonderful app")] {
+            let all = try frames(name)
+            var t = AltScreenTracker()
+            for (i, frame) in all.enumerated() {
+                t.observe(frame)
+                guard i % 25 == 0 else { continue }
+                let nums = t.peek().compactMap { line -> Int? in
+                    let s = line.trimmingCharacters(in: .whitespaces)
+                    guard s.hasSuffix(suffix) else { return nil }
+                    return Int(s.dropLast(suffix.count).trimmingCharacters(in: .whitespaces))
+                }.filter { (1 ... 300).contains($0) }
+                if !nums.isEmpty {
+                    XCTAssertEqual(nums, Array(1 ... nums.count), "\(name) frame \(i)")
+                }
+            }
+        }
+    }
 }

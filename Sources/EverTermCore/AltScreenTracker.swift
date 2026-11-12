@@ -28,6 +28,7 @@ public struct AltScreenTracker: Sendable {
     private var previous: [String]?
     private var pinnedTop = 0                         // pinned rows seen at the last scroll
     private var rewound = 0                           // lines the content moved back down (you scrolled up in the app)
+    private var liveFrame: [String]?                  // last frame seen at the live bottom (not scrolled back)
 
     public init(limit: Int = AltScreenTracker.defaultLimit) {
         self.limit = limit
@@ -51,6 +52,7 @@ public struct AltScreenTracker: Sendable {
         defer { previous = rows }
         // Fill the totals on every return path (a defer would change o after it is returned).
         func done() -> Observation {
+            if rewound == 0 { liveFrame = rows }
             o.rewound = rewound
             o.archiveCount = archive.count
             return o
@@ -106,7 +108,25 @@ public struct AltScreenTracker: Sendable {
     /// archived, and lines it shares with the end of the archive appear once.
     /// Nil if there is nothing. Starts over afterwards.
     public mutating func capture(finalRows: [String]?) -> [String]? {
-        var final = finalRows ?? []
+        let lines = merged(finalRows: finalRows)
+        archive = []
+        previous = nil
+        liveFrame = nil
+        pinnedTop = 0
+        rewound = 0
+        return lines.isEmpty ? nil : lines
+    }
+
+    /// #16: what the app has shown so far (archived lines + the last complete frame),
+    /// without changing anything, so the save on exit is not affected.
+    public func peek() -> [String] {
+        merged(finalRows: previous)
+    }
+
+    /// While you are scrolled back inside the app, its screen shows older lines;
+    /// the newest content is the last frame seen at the live bottom.
+    private func merged(finalRows: [String]?) -> [String] {
+        var final = (rewound > 0 ? liveFrame : finalRows) ?? []
         if pinnedTop > 0, final.count > pinnedTop {
             let archived = Set(archive)
             if final[0 ..< pinnedTop].allSatisfy({ $0.isEmpty || archived.contains($0) }) {
@@ -118,13 +138,9 @@ public struct AltScreenTracker: Sendable {
         while overlap > 0, !archive.suffix(overlap).elementsEqual(final.prefix(overlap)) { overlap -= 1 }
         var lines = archive
         lines.append(contentsOf: final.dropFirst(overlap))
-        archive = []
-        previous = nil
-        pinnedTop = 0
-        rewound = 0
         while lines.last?.isEmpty == true { lines.removeLast() }
         while lines.first?.isEmpty == true { lines.removeFirst() }
-        return lines.isEmpty ? nil : lines
+        return lines
     }
 
     /// Smallest-error upward shift s such that current[i] == previous[i + s]
