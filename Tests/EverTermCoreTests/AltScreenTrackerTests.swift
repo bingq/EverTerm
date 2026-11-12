@@ -139,4 +139,37 @@ final class AltScreenTrackerTests: XCTestCase {
         let out = t.capture(finalRows: app.screen()) ?? []
         assertAll300(out)
     }
+
+    /// Mac run 3: the same numbers printed three times. Every batch is kept
+    /// (repeated output is not mistaken for scrolling back).
+    func testRepeatedOutputIsKept() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 52, header: nil, footer: footer, transcript: [])
+        for round in 1 ... 3 {
+            app.transcript += ["❯ print 300 lines, round \(round)", ""]
+            for n in 1 ... 300 {
+                app.transcript.append(String(format: "  %03d", n))
+                if n % 4 == 0 { t.observe(app.screen()) }
+            }
+            app.transcript.append("")
+            t.observe(app.screen())
+        }
+        let out = t.capture(finalRows: app.screen()) ?? []
+        XCTAssertEqual(numbers(out), Array(1 ... 300) + Array(1 ... 300) + Array(1 ... 300))
+        for round in 1 ... 3 {
+            XCTAssertEqual(out.filter { $0 == "❯ print 300 lines, round \(round)" }.count, 1)
+        }
+    }
+
+    /// Scrolling up inside the app and back down, without a pinned header.
+    func testScrollingBackWithoutHeaderAddsNothing() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 40, header: nil, footer: footer, transcript: ["❯ go"])
+        t.observe(app.screen())
+        stream(&app, &t, count: 300, perFrame: 5)
+        for back in stride(from: 5, through: 200, by: 5) { app.scrolledBack = back; t.observe(app.screen()) }
+        for back in stride(from: 200, through: 0, by: -5) { app.scrolledBack = back; t.observe(app.screen()) }
+        let out = t.capture(finalRows: app.screen()) ?? []
+        assertAll300(out)
+    }
 }

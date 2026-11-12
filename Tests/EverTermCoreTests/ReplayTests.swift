@@ -34,15 +34,28 @@ final class ReplayTests: XCTestCase {
         XCTAssertEqual(numbers(out, "Line "), Array(1 ... 300))
     }
 
-    /// Mac run 1: scrolled inside Claude while it printed. No repeated prompt;
-    /// at most a couple of lines lost or repeated (the redraws are ambiguous).
+    /// Mac run 1: scrolled inside Claude while it printed. Every line once, prompt once.
     func testRun1() throws {
         let out = replay(try frames("run1"))
-        let nums = numbers(out, "").filter { (1 ... 300).contains($0) }
-        let missing = Set(1 ... 300).subtracting(nums).count
-        XCTAssertLessThanOrEqual(missing, 3)
-        XCTAssertLessThanOrEqual(nums.count - Set(nums).count, 2)
-        XCTAssertLessThanOrEqual(out.filter { $0.contains("print 300 numbered") }.count, 3)
-        print("run1: \(nums.count) numbers, \(missing) missing, \(nums.count - Set(nums).count) repeated")
+        XCTAssertEqual(numbers(out, "").filter { (1 ... 300).contains($0) }, Array(1 ... 300))
+        XCTAssertEqual(out.filter { $0.contains("print 300 numbered") }.count, 1)
+    }
+
+    /// Mac run 3: the same numbers printed in several batches, the last one in
+    /// slow chunks with shell commands in between. Each prompt once; the slow
+    /// batch (51-300) almost complete. A few lines at chunk joins may be lost or
+    /// doubled where Claude collapses its tool output.
+    func testRun3() throws {
+        let out = replay(try frames("run3"))
+        for prompt in ["just keep but at slower pace", "another time please"] {
+            XCTAssertEqual(out.filter { $0.contains(prompt) }.count, 1, prompt)
+        }
+        guard let start = out.firstIndex(where: { $0.contains("Continuing from 51") }) else {
+            return XCTFail("slow batch not found")
+        }
+        let slow = Set(numbers(Array(out[start...]).map { $0.replacingOccurrences(of: "⏺ ", with: "") }, "")
+            .filter { (51 ... 300).contains($0) })
+        XCTAssertGreaterThanOrEqual(slow.count, 245, "slow batch kept \(slow.count) of 250")
+        print("run3: slow batch kept \(slow.count) of 250 lines")
     }
 }

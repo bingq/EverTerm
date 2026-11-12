@@ -72,3 +72,9 @@
 - Tests: `swift test` (EverTermCoreTests): made-up Claude-style streams (footer, pinned prompt, scrolling back, vim paging, join), and one rule test per #12/#14 behaviour already verified on the Mac. The pinned-prompt tests fail on the old logic and pass now.
 - Replay of real session frames (ReplayTests) runs only when EVERTERM_REPLAY_DIR points at exported frames; session logs are private and not in the repo. On the two Mac runs: run 2 = 300/300 in order, no repeats; run 1 (scrolled inside Claude) = 299 lines, 2 missing, 1 repeated, no repeated prompt.
 - App code not compiled here (the dev box is Linux); EverTermCore and its tests were built and run with Swift 6.1.2 on Linux.
+
+## 2026-11-12: #9 second fix, repeated output was dropped
+- Mac run 3 (same numbers printed in three batches, the last in slow chunks with shell commands between): the 2026-11-12 fix kept only the first and last lines of each chunk and repeated each prompt up to 9 times.
+- Cause: the de-dup key (line + two lines after it) matched the earlier batches, so new repeated output looked like the app scrolling back over old lines.
+- Fix: scrolling back is detected by direction instead. When the content moves down (you scrolled up inside the app), that many lines are skipped when it moves up again. Content matching is only a fallback for jumps the direction check misses, and only within the last 3 screens, so output repeated further apart is kept.
+- Replay of the three Mac runs: run 1 = 1-300 once, prompt once; run 2 = 1-300 once; run 3 = every batch kept, each prompt once, 246 of 250 lines of the slow batch (a few lost or doubled where Claude collapses its tool output). The new tests fail on the previous fix and pass now.
