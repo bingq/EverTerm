@@ -172,4 +172,21 @@ final class AltScreenTrackerTests: XCTestCase {
         let out = t.capture(finalRows: app.screen()) ?? []
         assertAll300(out)
     }
+
+    /// The debug log's totals (archive size, rewind count) must be current.
+    func testObservationReportsTotals() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 20, header: nil, footer: footer, transcript: [])
+        stream(&app, &t, count: 40, perFrame: 2)
+        app.transcript += ["  041", "  042"]
+        let o = t.observe(app.screen())
+        XCTAssertEqual(o.up, 2)
+        XCTAssertEqual(o.appended, 2)
+        XCTAssertEqual(o.archiveCount, t.archive.count)
+        XCTAssertGreaterThan(o.archiveCount, 0)
+        app.scrolledBack = 3
+        let back = t.observe(app.screen())
+        XCTAssertEqual(back.down, 3)
+        XCTAssertEqual(back.rewound, 3)
+    }
 }

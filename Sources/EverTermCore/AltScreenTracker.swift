@@ -48,13 +48,15 @@ public struct AltScreenTracker: Sendable {
     public mutating func observe(_ rows: [String]) -> Observation {
         var o = Observation()
         o.rows = rows.count
-        defer {
-            previous = rows
+        defer { previous = rows }
+        // Fill the totals on every return path (a defer would change o after it is returned).
+        func done() -> Observation {
             o.rewound = rewound
             o.archiveCount = archive.count
+            return o
         }
-        guard let previous else { return o }
-        guard previous.count == rows.count else { o.sizeChanged = true; return o }
+        guard let previous else { return done() }
+        guard previous.count == rows.count else { o.sizeChanged = true; return done() }
         let n = rows.count
         var top = 0
         while top < n - 4, !previous[top].isEmpty, previous[top] == rows[top] { top += 1 }
@@ -80,7 +82,7 @@ public struct AltScreenTracker: Sendable {
             o.down = down
             rewound += down
         }
-        return o
+        return done()
     }
 
     /// True if the three lines appear in this order among the last `window` archived lines
