@@ -157,4 +157,13 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 
     func bell(source: TerminalView) { NSSound.beep() }
+
+    /// #16: an app asked to put text on the clipboard (OSC 52). Claude Code does this
+    /// when you select text in its own view. Write only: clipboardRead stays unimplemented
+    /// (SwiftTerm's default returns nil), so a program can't read what you copied elsewhere.
+    func clipboardCopy(source: TerminalView, content: Data) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(String(decoding: content, as: UTF8.self), forType: .string)
+    }
 }

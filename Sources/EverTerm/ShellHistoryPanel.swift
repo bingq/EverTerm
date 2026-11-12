@@ -82,9 +82,20 @@ final class ShellHistoryPanel: NSView {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                        height: CGFloat.greatestFiniteMagnitude)
         textView.layoutManager?.allowsNonContiguousLayout = true
-        textView.string = lines.joined(separator: "\n")
-        textView.font = terminal.font          // after the text, so it applies to all of it
-        textView.textColor = foreground
+        // Whole-point line height, so line edges land on pixels and a shrinking
+        // selection leaves no slivers of old highlight behind.
+        let font = terminal.font
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        textView.defaultParagraphStyle = paragraph
+        textView.typingAttributes = [.font: font, .foregroundColor: foreground, .paragraphStyle: paragraph]
+        textView.textStorage?.setAttributedString(NSAttributedString(
+            string: lines.joined(separator: "\n"),
+            attributes: [.font: font, .foregroundColor: foreground, .paragraphStyle: paragraph]))
+        // Same selection colour as the terminal, so a selection looks the same everywhere.
+        textView.selectedTextAttributes = [.backgroundColor: terminal.selectedTextBackgroundColor]
         scrollView.documentView = textView
         addSubview(scrollView)
 
@@ -118,6 +129,13 @@ final class ShellHistoryPanel: NSView {
 private final class HistoryTextView: NSTextView {
     var onEscape: (() -> Void)?
     var onTyping: ((NSEvent) -> Void)?
+
+    /// Repaint the visible text whenever the selection changes; AppKit's partial
+    /// repaint left thin lines of old highlight when a drag selection shrank.
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        setNeedsDisplay(visibleRect)
+    }
 
     private static let navigationKeys: [NSEvent.SpecialKey] =
         [.pageUp, .pageDown, .home, .end, .upArrow, .downArrow, .leftArrow, .rightArrow]

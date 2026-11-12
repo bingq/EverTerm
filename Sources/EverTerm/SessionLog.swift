@@ -61,9 +61,14 @@ final class SessionLogger: @unchecked Sendable {
         let data = Data((line + "\n").utf8)
         queue.async {
             if self.debug == nil {
+                // Append, never recreate: lines can arrive after finish() (the final
+                // capture), and recreating the file used to wipe the whole log.
                 let url = self.directory.appendingPathComponent("capture-debug.log")
-                FileManager.default.createFile(atPath: url.path, contents: nil)
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    FileManager.default.createFile(atPath: url.path, contents: nil)
+                }
                 self.debug = try? FileHandle(forWritingTo: url)
+                _ = try? self.debug?.seekToEnd()
             }
             self.debug?.write(data)
         }
