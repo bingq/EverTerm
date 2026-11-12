@@ -29,6 +29,7 @@ public struct AltScreenTracker: Sendable {
     private var pinnedTop = 0                         // pinned rows seen at the last scroll
     private var rewound = 0                           // lines the content moved back down (you scrolled up in the app)
     private var liveFrame: [String]?                  // last frame seen at the live bottom (not scrolled back)
+    private var beforeScrollBack: [String]?           // the live screen just before you scrolled up in the app
 
     public init(limit: Int = AltScreenTracker.defaultLimit) {
         self.limit = limit
@@ -77,14 +78,43 @@ public struct AltScreenTracker: Sendable {
                 if o.firstAppended == nil { o.firstAppended = previous[index] }
                 o.lastAppended = previous[index]
             }
+            if rewound == 0, let before = beforeScrollBack {
+                o.appended += addHidden(before: before, now: rows, pinned: top)
+                beforeScrollBack = nil
+            }
             if archive.count > limit {
                 archive.removeFirst(archive.count - limit)
             }
         } else if let down = Self.detectScrollDown(previous: previous, current: rows, skipTop: top) {
             o.down = down
+            if rewound == 0 { beforeScrollBack = previous }
             rewound += down
         }
         return done()
+    }
+
+    /// Back at the bottom after scrolling up inside the app. The app may now pin a row
+    /// (Claude: your prompt) over a line that was on screen before you scrolled up and was
+    /// never saved, because it never scrolled off. Add the lines of the earlier screen that
+    /// come before the first line now visible under the pinned rows, unless already saved.
+    private mutating func addHidden(before: [String], now: [String], pinned: Int) -> Int {
+        // Only a pinned row can hide a line, and each pinned row hides at most one.
+        guard pinned > 0, pinned < now.count,
+              let firstVisible = now[pinned...].first(where: { !$0.isEmpty }),
+              let end = before.firstIndex(of: firstVisible) else { return 0 }
+        let pinnedNow = Set(now[0 ..< pinned])
+        let gap = before[0 ..< end].filter { !$0.isEmpty && !pinnedNow.contains($0) }
+        var added = 0
+        for line in gap.suffix(pinned) {
+            let k = gap.lastIndex(of: line) ?? 0
+            let next = k + 1 < gap.count ? gap[k + 1] : firstVisible
+            let afterNext = k + 2 < gap.count ? gap[k + 2] : ""
+            if archive.last == line || recentlyArchived(line, next, afterNext, window: 3 * now.count) { continue }
+            if archive.suffix(3 * now.count).contains(line) { continue }
+            archive.append(line)
+            added += 1
+        }
+        return added
     }
 
     /// True if the three lines appear in this order among the last `window` archived lines
@@ -112,6 +142,7 @@ public struct AltScreenTracker: Sendable {
         archive = []
         previous = nil
         liveFrame = nil
+        beforeScrollBack = nil
         pinnedTop = 0
         rewound = 0
         return lines.isEmpty ? nil : lines

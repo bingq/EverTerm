@@ -91,3 +91,9 @@
 - Also fixed: while you are scrolled back inside the app, its screen shows older lines; peek and the save on exit now use the last frame seen at the live bottom (quitting while scrolled up used to append the older lines below the newest).
 - Kept from #14: plain scroll goes to the app, Esc / typing / wheel past the end close the panel, ⌘ keys and paging stay in it. A selection drag auto-scrolls without going through the wheel handler, so it does not close the panel.
 - Tests: 39 (peek = capture and changes nothing; peek mid-stream; scrolled back at exit; panel text; replay: peek every 25 frames of the Mac runs is correct so far). All 48 sampling replays still exact.
+
+## 2026-11-12: #16 panel lost the line under Claude's pinned prompt
+- Mac panel test: after Claude finished, scrolling up and back down left line 256 out of the panel, with the prompt in its place. The save on exit was right (Claude unpins before exiting).
+- Cause (replay of the session, frame 468 -> 469): back at the bottom, Claude keeps the prompt pinned on row 0, over the line that was at the top of the last screen before you scrolled up. That line never scrolled off, so it was never saved; coming back down it was skipped as already seen.
+- Fix: AltScreenTracker remembers the live screen just before you scroll up. Back at the bottom, it adds the line(s) a pinned row now hides: at most one per pinned row, only the ones just above the first visible line, never a pinned row itself, never one already saved.
+- Checks: the panel is right after every frame of Mac runs 1, 4 and 5; 40 tests pass (new: synthetic pinned-after-scroll-back case, run 5 replay); all sampling replays still exact. A first, broader attempt re-added pinned rows in run 3 and was dropped.

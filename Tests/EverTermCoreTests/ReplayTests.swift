@@ -74,12 +74,13 @@ final class ReplayTests: XCTestCase {
     /// #16: at any point during a run, the panel's "captured so far" is correct so far:
     /// the numbers are 1...k in order with no repeats.
     func testPeekDuringRuns() throws {
-        for (name, suffix) in [("run1", ""), ("run4", " line for testing for my wonderful app")] {
+        for (name, suffix) in [("run1", ""), ("run4", " line for testing for my wonderful app"),
+                               ("run5", " line for testing for my wonderful app")] {
             let all = try frames(name)
             var t = AltScreenTracker()
             for (i, frame) in all.enumerated() {
                 t.observe(frame)
-                guard i % 25 == 0 else { continue }
+                guard i % 25 == 0 || name == "run5" else { continue }
                 let nums = t.peek().compactMap { line -> Int? in
                     let s = line.trimmingCharacters(in: .whitespaces)
                     guard s.hasSuffix(suffix) else { return nil }

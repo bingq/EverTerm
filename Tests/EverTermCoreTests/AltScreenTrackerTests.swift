@@ -226,4 +226,22 @@ final class AltScreenTrackerTests: XCTestCase {
         assertAll300(t.peek())
         assertAll300(t.capture(finalRows: app.screen()) ?? [])
     }
+
+    /// Mac run 5: after the app finishes, you scroll up (the app pins your prompt to the
+    /// top row) and back down; the app keeps the prompt pinned, covering the line that was
+    /// at the top of the last screen. That line was never saved and must not be lost.
+    func testLineHiddenUnderPinnedRowAfterScrollingBackIsKept() {
+        var t = AltScreenTracker()
+        var app = FakeApp(rows: 30, header: nil, footer: footer, transcript: ["❯ go"])
+        t.observe(app.screen())
+        stream(&app, &t, count: 300, perFrame: 5)
+        app.header = "❯ go"                       // scrolling up pins the prompt
+        for back in stride(from: 3, through: 60, by: 3) { app.scrolledBack = back; t.observe(app.screen()) }
+        for back in stride(from: 60, through: 0, by: -3) { app.scrolledBack = back; t.observe(app.screen()) }
+        assertAll300(t.peek())                    // the panel
+        XCTAssertLessThanOrEqual(t.peek().filter { $0 == "❯ go" }.count, 1)
+        app.header = nil                          // the app unpins before exiting
+        t.observe(app.screen())
+        assertAll300(t.capture(finalRows: app.screen()) ?? [])
+    }
 }
