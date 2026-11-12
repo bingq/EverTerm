@@ -42,11 +42,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
         // #14: Shift + scroll up over a full-screen app opens the shell history.
         // SwiftTerm's scrollWheel is public but not open, so watch events instead of subclassing.
+        // Return only a Bool from the main-actor block: NSEvent is not Sendable.
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self, self.openHistoryOnShiftScroll(event) else { return event }
-                return nil
+            let handled = MainActor.assumeIsolated {
+                self?.openHistoryOnShiftScroll(event) ?? false
             }
+            return handled ? nil : event
         }
     }
 
