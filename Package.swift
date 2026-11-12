@@ -13,7 +13,9 @@ let package = Package(
         .target(name: "EverTermCore"),
         .executableTarget(
             name: "EverTerm",
-            dependencies: ["EverTermCore", .product(name: "SwiftTerm", package: "SwiftTerm")]
+            dependencies: ["EverTermCore", .product(name: "SwiftTerm", package: "SwiftTerm")],
+            // Dock icon while running with `swift run` (no .app bundle yet); see Icon/README.md.
+            resources: [.copy("Resources/AppIcon.png")]
         ),
         .testTarget(name: "EverTermCoreTests", dependencies: ["EverTermCore"]),
     ]

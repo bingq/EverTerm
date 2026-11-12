@@ -7,6 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build(target: self)
+        // `swift run` starts a bare executable, which has no .app bundle for macOS to
+        // read the icon from, so set the Dock icon here.
+        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         let controller = MainWindowController()
         main = controller
         controller.showWindow(nil)

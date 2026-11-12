@@ -11,3 +11,7 @@ Build the `.icns` on a Mac with Apple's tool:
 ```
 iconutil -c icns Icon/AppIcon.iconset -o Icon/AppIcon.icns
 ```
+
+While EverTerm runs with `swift run` there is no `.app` bundle, so the Dock icon is set at launch from
+`Sources/EverTerm/Resources/AppIcon.png` (512 px copy of the master). A real `.app` (Xcode project, needed
+for the App Store) uses `AppIcon.appiconset` instead.
