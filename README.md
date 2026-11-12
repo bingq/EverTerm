@@ -5,7 +5,7 @@ keep their scrollback locally, in memory and on disk, even after the remote host
 
 ## Build and run (on the Mac)
 
-Requires Xcode 26 / Swift 6.2 or later (SwiftTerm 1.99.3 needs it).
+Requires a recent Xcode with Swift 6.4 or later (checked: 6.4.2 builds; 6.2.3 fails to compile SwiftTerm 1.99.3). Check with `swift --version`.
 
 ```sh
 git clone https://github.com/bingq/EverTerm && cd EverTerm

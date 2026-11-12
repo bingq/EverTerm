@@ -1,5 +1,5 @@
 // swift-tools-version:5.9
-// Needs Xcode 26 / Swift 6.2+ toolchain (SwiftTerm requires it).
+// Needs a Swift 6.4+ toolchain (SwiftTerm 1.99.3 does not compile with 6.2.3).
 import PackageDescription
 
 let package = Package(
