@@ -5,6 +5,22 @@
 /// everything shown (lines that scrolled off the top, then the final screen)
 /// and starts over.
 public struct AltScreenTracker: Sendable {
+    /// What one `observe` call did (for the optional capture debug log).
+    public struct Observation: Sendable, Equatable {
+        public var rows = 0
+        public var pinnedTop = 0
+        public var up: Int?            // content moved up by this many lines
+        public var down: Int?          // content moved down (you scrolled up in the app)
+        public var appended = 0        // lines added to the archive
+        public var skippedRewound = 0  // lines skipped as already seen after scrolling back
+        public var skippedRecent = 0   // lines skipped as a repeat within the last 3 screens
+        public var rewound = 0         // rewind count after this frame
+        public var archiveCount = 0
+        public var firstAppended: String?
+        public var lastAppended: String?
+        public var sizeChanged = false // row count differs from the last frame (resize)
+    }
+
     public static let defaultLimit = 200_000
 
     public let limit: Int
@@ -28,28 +44,43 @@ public struct AltScreenTracker: Sendable {
     /// up inside the app), that many lines are skipped when it moves up again, so
     /// scrolling inside the app adds nothing. Repeated output (the same lines printed
     /// twice) is kept; only a repeat within the last few screens is treated as a re-scroll.
-    public mutating func observe(_ rows: [String]) {
-        defer { previous = rows }
-        guard let previous, previous.count == rows.count else { return }
+    @discardableResult
+    public mutating func observe(_ rows: [String]) -> Observation {
+        var o = Observation()
+        o.rows = rows.count
+        defer {
+            previous = rows
+            o.rewound = rewound
+            o.archiveCount = archive.count
+        }
+        guard let previous else { return o }
+        guard previous.count == rows.count else { o.sizeChanged = true; return o }
         let n = rows.count
         var top = 0
         while top < n - 4, !previous[top].isEmpty, previous[top] == rows[top] { top += 1 }
+        o.pinnedTop = top
         if let up = Self.detectScroll(previous: previous, current: rows, skipTop: top) {
+            o.up = up
             pinnedTop = top
             let window = 3 * n
             for index in top ..< top + up {
-                if rewound > 0 { rewound -= 1; continue }
+                if rewound > 0 { rewound -= 1; o.skippedRewound += 1; continue }
                 let next = index + 1 < n ? previous[index + 1] : ""
                 let afterNext = index + 2 < n ? previous[index + 2] : ""
-                if recentlyArchived(previous[index], next, afterNext, window: window) { continue }
+                if recentlyArchived(previous[index], next, afterNext, window: window) { o.skippedRecent += 1; continue }
                 archive.append(previous[index])
+                o.appended += 1
+                if o.firstAppended == nil { o.firstAppended = previous[index] }
+                o.lastAppended = previous[index]
             }
             if archive.count > limit {
                 archive.removeFirst(archive.count - limit)
             }
         } else if let down = Self.detectScrollDown(previous: previous, current: rows, skipTop: top) {
+            o.down = down
             rewound += down
         }
+        return o
     }
 
     /// True if the three lines appear in this order among the last `window` archived lines

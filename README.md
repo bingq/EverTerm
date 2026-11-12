@@ -11,6 +11,7 @@ Requires Xcode 26 / Swift 6.2 or later (SwiftTerm 1.99.3 needs it).
 git clone https://github.com/bingq/EverTerm && cd EverTerm
 swift run            # first run downloads SwiftTerm
 swift test           # unit tests for the core logic (EverTermCore)
+EVERTERM_DEBUG_CAPTURE=1 swift run   # also write capture-debug.log in each session folder
 # or: open Package.swift   (opens in Xcode, then Run)
 ```
 

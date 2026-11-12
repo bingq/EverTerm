@@ -58,4 +58,16 @@ final class ReplayTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(slow.count, 245, "slow batch kept \(slow.count) of 250")
         print("run3: slow batch kept \(slow.count) of 250 lines")
     }
+
+    /// Mac run 4: 300 numbered text lines, sampled at the end of every frame.
+    /// (The real failure came from looking at half-drawn frames; see HostOutputScanner.)
+    func testRun4() throws {
+        let out = replay(try frames("run4"))
+        let nums = out.compactMap { line -> Int? in
+            let s = line.trimmingCharacters(in: .whitespaces)
+            guard s.hasSuffix("line for testing for my wonderful app") else { return nil }
+            return Int(s.split(separator: " ").first ?? "")
+        }
+        XCTAssertEqual(nums, Array(1 ... 300))
+    }
 }

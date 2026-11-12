@@ -29,6 +29,7 @@ final class SessionLogger: @unchecked Sendable {
     private var record: SessionRecord
     private var raw: FileHandle?
     private var text: FileHandle?
+    private var debug: FileHandle?   // capture-debug.log, opened on first use
     private var stripper = AnsiStripper()
 
     init(command: String) {
@@ -55,6 +56,19 @@ final class SessionLogger: @unchecked Sendable {
         queue.async { self.text?.write(data) }
     }
 
+    /// One line to capture-debug.log (only written when EVERTERM_DEBUG_CAPTURE is set).
+    func appendDebug(_ line: String) {
+        let data = Data((line + "\n").utf8)
+        queue.async {
+            if self.debug == nil {
+                let url = self.directory.appendingPathComponent("capture-debug.log")
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+                self.debug = try? FileHandle(forWritingTo: url)
+            }
+            self.debug?.write(data)
+        }
+    }
+
     /// customName: pass "" to clear it (back to the automatic name).
     func update(title: String? = nil, directory: String? = nil, customName: String? = nil) {
         queue.async {
@@ -74,6 +88,8 @@ final class SessionLogger: @unchecked Sendable {
             try? self.text?.synchronize()
             try? self.raw?.close()
             try? self.text?.close()
+            try? self.debug?.close()
+            self.debug = nil
             self.raw = nil
             self.text = nil
         }

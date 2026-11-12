@@ -15,11 +15,10 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     /// can delete the history. ESC[2J (clear the visible screen) still works.
     /// output.raw keeps the byte; only the screen ignores it.
     static var keepScrollbackOnErase = true
-    private static let eraseScrollback = TerminalBytes.eraseScrollback
 
-    /// Sequences that leave the alternate screen.
-    private static let altExitSequences: [[UInt8]] =
-        ["\u{1b}[?1049l", "\u{1b}[?1047l", "\u{1b}[?47l"].map { Array($0.utf8) }
+    /// #9: write capture-debug.log in each session folder (one line per screen look).
+    /// Turn on with `EVERTERM_DEBUG_CAPTURE=1 swift run`. The log holds screen text; it stays local.
+    static let debugCapture = ProcessInfo.processInfo.environment["EVERTERM_DEBUG_CAPTURE"] != nil
 
     /// Modes left on when a foreground program dies inside the tab but the shell
     /// lives on (e.g. `et` drops). Bracketed paste (2004) is left alone: the
@@ -32,7 +31,9 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     let logger: SessionLogger
     private weak var view: TerminalView?
     private var process: LocalProcess!
-    private var carry: [UInt8] = []          // partial alt-exit sequence split across reads
+    private var scanner = HostOutputScanner()    // split sequences, ESC[3J, frame boundaries
+    private var rawOffset = 0                    // bytes received so far (position in output.raw)
+    private let startTime = DispatchTime.now()
     private var altTracker = AltScreenTracker()  // what the full-screen app has shown (#9)
     private var trackGeneration = 0
     private var lastTrack = DispatchTime.now()
@@ -102,33 +103,22 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     func dataReceived(slice: ArraySlice<UInt8>) {
         logger.append(slice)
+        rawOffset += slice.count
         checkForegroundReturnedToShell()
         guard Self.captureAlternateScreen || Self.keepScrollbackOnErase else {
             view?.feed(byteArray: slice)
             return
         }
-        var bytes = carry
-        bytes.append(contentsOf: slice)
-        carry = []
-        // Hold back a tail that could be the start of a sequence we act on.
-        if let esc = bytes.lastIndex(of: 0x1B), bytes.count - esc >= 2, bytes.count - esc < 8 {
-            let tail = Array(bytes[esc...])
-            if Self.watchedSequences.contains(where: { $0.count > tail.count && $0.starts(with: tail) }) {
-                carry = tail
-                bytes.removeLast(tail.count)
-            }
-        }
-        if Self.keepScrollbackOnErase { bytes = Self.removingEraseScrollback(bytes) }
+        scanner.keepScrollbackOnErase = Self.keepScrollbackOnErase
+        let (bytes, events) = scanner.scan(slice)
         guard Self.captureAlternateScreen else {
             if !bytes.isEmpty { view?.feed(byteArray: bytes[...]) }
             notifyOutput()
             return
         }
-        feedCapturingAltExit(bytes)
+        feedCapturingAltExit(bytes, events: events)
         notifyOutput()
     }
-
-    private static var watchedSequences: [[UInt8]] { altExitSequences + [eraseScrollback] }
 
     /// Removes every ESC[3J; everything else passes through unchanged.
     static func removingEraseScrollback(_ bytes: [UInt8]) -> [UInt8] {
@@ -149,7 +139,8 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
     }
 
     func processTerminated(_ source: LocalProcess, exitCode: Int32?) {
-        if !carry.isEmpty { view?.feed(byteArray: carry[...]); carry = [] }
+        let held = scanner.flush()
+        if !held.isEmpty { view?.feed(byteArray: held[...]) }
         logger.finish(exitCode: exitCode)
         let handler = onExit
         DispatchQueue.main.async { handler?(exitCode) }
@@ -177,7 +168,8 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
         guard let view, let state = view.terminalInputStateSnapshot() else { return }
         guard state.isAlternateBuffer || state.mouseMode != .off else { return }
         let saved = captureAlternateScreen()
-        if !carry.isEmpty { view.feed(byteArray: carry[...]); carry = [] }
+        let held = scanner.flush()
+        if !held.isEmpty { view.feed(byteArray: held[...]) }
         view.feed(text: Self.foregroundModeReset)
         if let saved { inject(saved, into: view, reason: "program ended without leaving full-screen mode") }
         let dropped = onProgramDropped
@@ -196,44 +188,48 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     // MARK: alternate screen capture
 
-    /// Feeds bytes; at each alt-exit sequence, copies the alt screen first and
-    /// replays it into the normal buffer right after the switch back.
-    private func feedCapturingAltExit(_ bytes: [UInt8]) {
+    /// Feeds bytes. #9: the alt screen is looked at only when a frame is complete:
+    /// at the end of each synchronized update (ESC[?2026l, Claude Code wraps every
+    /// frame in one), or after output pauses when the app doesn't use them; never in
+    /// the middle of an update, where a half-drawn screen looks like a wrong scroll.
+    /// At each alt-exit sequence, the alt screen is copied first and replayed into the
+    /// normal buffer right after the switch back.
+    private func feedCapturingAltExit(_ bytes: [UInt8], events: [HostOutputScanner.Event]) {
         guard let view else { return }
         var start = 0
-        var i = 0
-        while i < bytes.count {
-            if bytes[i] == 0x1B,
-               let seq = Self.altExitSequences.first(where: {
-                   bytes.count - i >= $0.count && bytes[i ..< i + $0.count].elementsEqual($0)
-               }) {
-                if i > start { view.feed(byteArray: bytes[start ..< i]) }
-                trackAltScroll()
-                let saved = captureAlternateScreen()
-                view.feed(byteArray: bytes[i ..< i + seq.count])
-                if let saved { inject(saved, into: view, reason: "full-screen app exited") }
-                i += seq.count
-                start = i
+        for event in events {
+            switch event.kind {
+            case .syncBegin:
                 continue
+            case .syncEnd:
+                view.feed(byteArray: bytes[start ..< event.end])
+                start = event.end
+                trackAltScroll(reason: "frame")
+            case .altExit:
+                if event.start > start { view.feed(byteArray: bytes[start ..< event.start]) }
+                trackAltScroll(reason: "exit")
+                let saved = captureAlternateScreen()
+                view.feed(byteArray: bytes[event.start ..< event.end])
+                if let saved { inject(saved, into: view, reason: "full-screen app exited") }
+                start = event.end
             }
-            i += 1
         }
         if start < bytes.count { view.feed(byteArray: bytes[start...]) }
-        scheduleAltTrack()
+        if !scanner.inSyncUpdate { scheduleAltTrack() }
     }
 
-    /// Look at the alt screen once output pauses (30 ms), so we compare whole
-    /// frames, not half-drawn ones; but at least every 300 ms during a stream.
+    /// Apps without synchronized updates: look once output pauses (30 ms), but at
+    /// least every 300 ms during a stream. Skipped while a frame is being drawn.
     private func scheduleAltTrack() {
         trackGeneration &+= 1
         let generation = trackGeneration
         if DispatchTime.now().uptimeNanoseconds - lastTrack.uptimeNanoseconds > 300_000_000 {
-            trackAltScroll()
+            trackAltScroll(reason: "timer300")
             return
         }
         queue.asyncAfter(deadline: .now() + .milliseconds(30)) { [weak self] in
-            guard let self, self.trackGeneration == generation else { return }
-            self.trackAltScroll()
+            guard let self, self.trackGeneration == generation, !self.scanner.inSyncUpdate else { return }
+            self.trackAltScroll(reason: "pause")
         }
     }
 
@@ -252,21 +248,28 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     /// Called after each settled frame while a full-screen app runs; the
     /// tracker keeps the lines that scroll off the top (#9).
-    private func trackAltScroll() {
+    private func trackAltScroll(reason: String) {
         lastTrack = DispatchTime.now()
         guard Self.captureAlternateScreen, let rows = altRows() else {
             altTracker.screenGone()
             return
         }
-        altTracker.observe(rows)
+        let observation = altTracker.observe(rows)
+        if Self.debugCapture {
+            let ms = Int((DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds) / 1_000_000)
+            logger.appendDebug(CaptureDebug.line(ms: ms, rawOffset: rawOffset, reason: reason,
+                                                 inSync: reason == "frame" ? false : scanner.inSyncUpdate, observation))
+        }
     }
 
     /// Everything the full-screen app showed: lines that scrolled off the top,
     /// then the final screen. Nil if there is nothing. Clears the archive.
     private func captureAlternateScreen() -> [String]? {
         guard Self.captureAlternateScreen else { return nil }
-        trackAltScroll()
-        return altTracker.capture(finalRows: altRows())
+        trackAltScroll(reason: "capture")
+        let lines = altTracker.capture(finalRows: altRows())
+        if Self.debugCapture { logger.appendDebug("capture: \(lines?.count ?? 0) lines saved") }
+        return lines
     }
 
     /// Plain text on purpose: SwiftTerm's ANSI export also rewrites the palette.
