@@ -97,3 +97,8 @@
 - Cause (replay of the session, frame 468 -> 469): back at the bottom, Claude keeps the prompt pinned on row 0, over the line that was at the top of the last screen before you scrolled up. That line never scrolled off, so it was never saved; coming back down it was skipped as already seen.
 - Fix: AltScreenTracker remembers the live screen just before you scroll up. Back at the bottom, it adds the line(s) a pinned row now hides: at most one per pinned row, only the ones just above the first visible line, never a pinned row itself, never one already saved.
 - Checks: the panel is right after every frame of Mac runs 1, 4 and 5; 40 tests pass (new: synthetic pinned-after-scroll-back case, run 5 replay); all sampling replays still exact. A first, broader attempt re-added pinned rows in run 3 and was dropped.
+
+## 2026-11-13: release 0.9 without an Apple account
+- No Mac App Store (sandbox would remove the local shell); issue #20 closed as not planned.
+- scripts/release.sh now needs no Apple account: universal build, ad-hoc signature, zip in dist/. Runs with no warning on the Mac that built it.
+- Next step (#21): signed and notarized download, so other people can open it without the "unidentified developer" block.
