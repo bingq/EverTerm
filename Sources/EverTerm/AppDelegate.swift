@@ -44,6 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func resetTerminal(_ sender: Any?) { store?.selected?.resetTerminal() }
 
+    @objc func reconnectSession(_ sender: Any?) {
+        if let store, let selected = store.selected { store.reconnect(selected) }
+    }
+
+    @objc func typeResumeCommand(_ sender: Any?) {
+        if let store, let selected = store.selected { store.typeResumeCommand(selected) }
+    }
+
     @objc func showShellHistory(_ sender: Any?) { main?.showShellHistory() }
 
     @objc func showSessionLogs(_ sender: Any?) {

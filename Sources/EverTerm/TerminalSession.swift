@@ -64,6 +64,17 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     func send(_ data: ArraySlice<UInt8>) { process.send(data: data) }
 
+    /// #18: a dim marker line on the screen and in output.txt (output.raw stays host bytes only),
+    /// then keys for the shell. The marker replaces the prompt line it lands on; the
+    /// typed command echoes on the line below it.
+    func mark(_ text: String, thenType keys: String? = nil) {
+        queue.async {
+            self.view?.feed(text: "\r\u{1b}[2K\u{1b}[0;2m\(text)\u{1b}[0m\r\n")
+            self.logger.appendNote("\n\(text)\n")
+            if let keys { self.process.send(data: Array(keys.utf8)[...]) }
+        }
+    }
+
     func resize(cols: Int, rows: Int) {
         var size = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
         _ = process.updateWindowSize(&size)

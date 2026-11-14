@@ -102,3 +102,12 @@
 - No Mac App Store (sandbox would remove the local shell); issue #20 closed as not planned.
 - scripts/release.sh now needs no Apple account: universal build, ad-hoc signature, zip in dist/. Runs with no warning on the Mac that built it.
 - Next step (#21): signed and notarized download, so other people can open it without the "unidentified developer" block.
+
+## 2026-11-14: #18 reconnect a dropped or ended session (⌘R)
+- Saved per session in meta.json (local only): the last connect command run in it (`ssh`, `et`, `mosh`, `autossh`, `telnet`; read from the process with KERN_PROCARGS2 when it takes the terminal), the local directory it started from, and Claude Code's `claude --resume <id>` line when it prints one on exit. Other programs (vim, claude, make) are not saved.
+- ⌘R (Shell → Reconnect, sidebar menu, and named in the "session ended" banner): shell alive at its prompt: a dim `── reconnected HH:mm ──` line, then the command is typed and run in the same session (history above untouched). Ended: a new session in the same directory runs it and keeps the custom name. Connection still up, or nothing saved: beep. The first time, an alert shows the exact command, because a command line can hold a secret; Forget Reconnect Command clears it.
+- ⌃⌘R types the saved resume command without Enter, so you can check it first. The reconnect line mentions it when one is saved.
+- The reconnect line goes to the screen and output.txt; output.raw stays host bytes only.
+- EverTermCore: ReconnectRules (what ⌘R does, which commands are saved, mosh's Perl wrapper unwrapped), ShellCommand (quoting), ProcessArguments (KERN_PROCARGS2 parser), ResumeHintScanner; AnsiStripper moved here from the app so the resume hint is tested on the same strip-then-scan path. The resume test uses the bytes Claude Code writes on exit in a real Mac session, at read sizes 1 to the whole block.
+- Tests: 50, all pass on Linux (Swift 6.1.2). App code not compiled here.
+- Not done: sessions from earlier app runs (needs the on-disk session list, #11 4b); the remote directory.

@@ -1,4 +1,5 @@
 import Foundation
+import EverTermCore
 
 /// Metadata for one session, stored as meta.json next to the logs.
 struct SessionRecord: Codable {
@@ -10,6 +11,11 @@ struct SessionRecord: Codable {
     var endedAt: Date?
     var exitCode: Int32?
     var customName: String?      // set when the user renames the session
+    // #18 reconnect. Local only; a command line can hold a secret, so it is shown
+    // before the first reconnect and can be cleared (Forget Reconnect Command).
+    var reconnectCommand: [String]? = nil   // last connect command run here (ssh, et, mosh...)
+    var reconnectDirectory: String? = nil   // local directory it was started from
+    var resumeHint: String? = nil           // e.g. "claude --resume <id>", seen in the output
 }
 
 /// Writes one session to disk as it happens:
@@ -31,6 +37,9 @@ final class SessionLogger: @unchecked Sendable {
     private var text: FileHandle?
     private var debug: FileHandle?   // capture-debug.log, opened on first use
     private var stripper = AnsiStripper()
+    private var hints = ResumeHintScanner()
+    /// #18: called on the main thread when a new resume command shows up in the output. Set before output starts.
+    var onResumeHint: ((String) -> Void)?
 
     init(command: String) {
         let stamp = ISO8601DateFormatter.fileSafe.string(from: Date())
@@ -47,6 +56,12 @@ final class SessionLogger: @unchecked Sendable {
             self.raw?.write(copy)
             let plain = self.stripper.strip(copy)
             if !plain.isEmpty { self.text?.write(plain) }
+            if let hint = self.hints.feed(plain), hint != self.record.resumeHint {
+                self.record.resumeHint = hint
+                self.writeMeta()
+                let handler = self.onResumeHint
+                DispatchQueue.main.async { handler?(hint) }
+            }
         }
     }
 
@@ -80,6 +95,16 @@ final class SessionLogger: @unchecked Sendable {
             if let title, !title.isEmpty { self.record.title = title }
             if let directory { self.record.directory = directory }
             if let customName { self.record.customName = customName.isEmpty ? nil : customName }
+            self.writeMeta()
+        }
+    }
+
+    /// #18. nil clears.
+    func updateReconnect(command: [String]?, directory: String?, resumeHint: String?) {
+        queue.async {
+            self.record.reconnectCommand = command
+            self.record.reconnectDirectory = directory
+            self.record.resumeHint = resumeHint
             self.writeMeta()
         }
     }
@@ -136,43 +161,4 @@ extension ISO8601DateFormatter {
         f.timeZone = TimeZone(identifier: "UTC")
         return f
     }()
-}
-
-/// Streaming escape-code stripper: keeps printable text, newlines and tabs.
-/// State carries across chunks, so a sequence split between two reads is handled.
-struct AnsiStripper {
-    private enum State { case ground, esc, csi, string, stringEsc }
-    private var state: State = .ground
-
-    mutating func strip(_ input: Data) -> Data {
-        var out = Data()
-        out.reserveCapacity(input.count)
-        for b in input {
-            switch state {
-            case .ground:
-                switch b {
-                case 0x1B: state = .esc
-                case 0x0A, 0x09: out.append(b)
-                case 0x00...0x1F, 0x7F: break          // other controls (CR, BS, BEL...)
-                default: out.append(b)                 // printable ASCII and UTF-8 bytes
-                }
-            case .esc:
-                switch b {
-                case UInt8(ascii: "["): state = .csi
-                case UInt8(ascii: "]"), UInt8(ascii: "P"), UInt8(ascii: "X"),
-                     UInt8(ascii: "^"), UInt8(ascii: "_"): state = .string   // OSC / DCS / SOS / PM / APC
-                case 0x20...0x2F: break                // intermediate, wait for final byte
-                default: state = .ground               // two-byte escape (ESC 7, ESC =, ...)
-                }
-            case .csi:
-                if (0x40...0x7E).contains(b) { state = .ground }
-            case .string:
-                if b == 0x07 { state = .ground }        // BEL terminator
-                else if b == 0x1B { state = .stringEsc }
-            case .stringEsc:
-                state = (b == UInt8(ascii: "\\")) ? .ground : .string
-            }
-        }
-        return out
-    }
 }

@@ -66,6 +66,16 @@ struct SidebarView: View {
             Button("Use Automatic Name") { model.customName = nil }
         }
         Divider()
+        Button("Reconnect") { store.reconnect(model) }
+            .disabled(model.status == .running && model.reconnectCommand == nil)
+        if model.resumeHint != nil {
+            Button("Type Claude Resume Command") { store.typeResumeCommand(model) }
+                .disabled(model.status != .running)
+        }
+        if model.reconnectCommand != nil || model.resumeHint != nil {
+            Button("Forget Reconnect Command") { model.forgetReconnect() }
+        }
+        Divider()
         Button("Show Logs in Finder") { NSWorkspace.shared.open(model.logDirectory) }
         Divider()
         Button(model.status == .running ? "End Session" : "Remove from List") { store.close(model) }

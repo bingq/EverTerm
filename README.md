@@ -31,7 +31,8 @@ EVERTERM_DEBUG_CAPTURE=1 swift run   # also write capture-debug.log in each sess
 ~/Library/Application Support/EverTerm/sessions/<UTC time>-<id>/
   output.raw   every byte from the host (replay with: cat output.raw, or less -R)
   output.txt   same output, escape codes stripped (grep-able)
-  meta.json    command, title, directory, start/end time, exit code
+  meta.json    command, title, directory, start/end time, exit code;
+               the last connect command (ssh, et, mosh...) and Claude Code resume command, for ⌘R
 ```
 
 Search all history: `grep -r "text" ~/Library/Application\ Support/EverTerm/sessions/*/output.txt`
@@ -45,6 +46,8 @@ Search all history: `grep -r "text" ~/Library/Application\ Support/EverTerm/sess
 | ⌘⇧R or double-click | Rename (empty name = back to the automatic name) |
 | ⌘1–⌘9, ⌘} / ⌘{ | Jump to session N, next / previous |
 | ⌃⌘S | Show / hide the sidebar |
+| ⌘R | Reconnect (#18): connection dropped, shell back at its prompt: runs the saved `ssh`/`et`/`mosh` command again in the same session. Ended session: new session in the same directory running it, same name. The command is shown once before it first runs |
+| ⌃⌘R | Type the saved `claude --resume <id>` at the prompt, without pressing Enter |
 | ⌥⌘R | Reset Terminal (rescue a stuck screen) |
 | ⇧⌘L | Show session logs in Finder |
 | ⇧ + scroll up (in a full-screen app), ⇧⌘H | Show the shell history from before the app started (read-only; Esc, scroll down past the end, or type to go back) |

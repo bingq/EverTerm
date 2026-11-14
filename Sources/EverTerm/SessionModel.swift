@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import EverTermCore
 import SwiftTerm
 
 /// One session in the sidebar: its terminal view, process, name and status.
@@ -35,6 +36,26 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     /// when the next program starts.
     @Published private(set) var programDropped = false
 
+    /// #18: last connect command run in this session (ssh, et, mosh...) and where from,
+    /// plus the Claude Code resume command seen in the output. Saved in meta.json only.
+    @Published private(set) var reconnectCommand: [String]? = nil
+    private(set) var reconnectDirectory: String? = nil
+    @Published private(set) var resumeHint: String? = nil
+    /// The saved command was shown once (it can hold a secret); later ⌘R runs it straight away.
+    var reconnectConfirmed = false
+    private var lastForegroundPID: pid_t?
+    private var pendingInput: String?      // typed into the shell when it first prints
+
+    /// What a reconnect carries from an ended session into the new one.
+    struct Carry {
+        var command: [String]?
+        var directory: String?
+        var resumeHint: String?
+        var customName: String?
+        var confirmed: Bool
+        var fromName: String
+    }
+
     private var title = ""
     private let shellName: String
 
@@ -49,7 +70,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     var logDirectory: URL { session.logger.directory }
 
-    init(directory: String = NSHomeDirectory()) {
+    init(directory: String = NSHomeDirectory(), carry: Carry? = nil) {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         shellName = (shell as NSString).lastPathComponent
         autoName = "local " + shellName
@@ -67,6 +88,18 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         session.onExit = { [weak self] code in self?.processEnded(exitCode: code) }
         session.onOutput = { [weak self] in self?.noteOutput() }
         session.onProgramDropped = { [weak self] in self?.programDropped = true }
+        session.logger.onResumeHint = { [weak self] hint in self?.resumeHint = hint }
+        if let carry {
+            reconnectCommand = carry.command
+            reconnectDirectory = carry.directory
+            resumeHint = carry.resumeHint
+            reconnectConfirmed = carry.confirmed
+            customName = carry.customName          // didSet does not run in init
+            if let name = carry.customName { session.logger.update(customName: name) }
+            session.logger.updateReconnect(command: carry.command, directory: carry.directory, resumeHint: carry.resumeHint)
+            pendingInput = carry.command.map { ReconnectRules.keystrokes(command: ShellCommand.join($0), pressEnter: true) }
+            session.mark(reconnectMarker(from: carry.fromName))
+        }
         session.start(executable: shell, args: [], execName: "-" + shellName, directory: directory)
     }
 
@@ -80,6 +113,63 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         session.recoverScreen()
     }
 
+    // MARK: reconnect (#18)
+
+    var reconnectCommandLine: String? { reconnectCommand.map(ShellCommand.join) }
+
+    var reconnectPlan: ReconnectRules.Plan {
+        let shell = status == .running ? session.shellPID : nil
+        let atPrompt = shell != nil && (session.foregroundProcessGroup() ?? shell) == shell
+        return ReconnectRules.plan(running: status == .running, atShellPrompt: atPrompt,
+                                   command: reconnectCommandLine, directory: reconnectDirectory ?? directory)
+    }
+
+    /// Same session: marker line, then the saved command typed and run at the prompt.
+    func rerun(_ command: String) {
+        reconnectConfirmed = true
+        session.mark(reconnectMarker(from: nil),
+                     thenType: ReconnectRules.keystrokes(command: command, pressEnter: true))
+    }
+
+    /// Types the saved Claude Code resume command at the prompt without pressing Enter.
+    func typeResumeCommand() -> Bool {
+        guard status == .running, let resumeHint else { return false }
+        session.send(Array(ReconnectRules.keystrokes(command: resumeHint, pressEnter: false).utf8)[...])
+        return true
+    }
+
+    func forgetReconnect() {
+        reconnectCommand = nil
+        reconnectDirectory = nil
+        resumeHint = nil
+        reconnectConfirmed = false
+        session.logger.updateReconnect(command: nil, directory: nil, resumeHint: nil)
+    }
+
+    func carry() -> Carry {
+        Carry(command: reconnectCommand, directory: reconnectDirectory ?? directory, resumeHint: resumeHint,
+              customName: customName, confirmed: reconnectConfirmed, fromName: displayName)
+    }
+
+    private func reconnectMarker(from name: String?) -> String {
+        var text = "── reconnected " + Self.clock.string(from: Date())
+        if let name { text += " (from ended session “\(name)”)" }
+        text += " ──"
+        if resumeHint != nil { text += "  Claude session saved: ⌃⌘R types its resume command" }
+        return text
+    }
+
+    /// #18: save the command line of a connect program when it takes the terminal.
+    private func noteForeground(_ pid: pid_t) {
+        guard pid != lastForegroundPID else { return }
+        lastForegroundPID = pid
+        guard let argv = ProcessInspector.arguments(of: pid),
+              let command = ReconnectRules.savedCommand(argv: argv) else { return }
+        reconnectCommand = command
+        reconnectDirectory = directory
+        session.logger.updateReconnect(command: command, directory: directory, resumeHint: resumeHint)
+    }
+
     /// Called about once a second by the store: refresh the automatic name and directory.
     func refreshProcessInfo() {
         guard status == .running, let shell = session.shellPID else { return }
@@ -88,6 +178,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
             session.logger.update(directory: cwd)
         }
         let foreground = session.foregroundProcessGroup() ?? shell
+        if foreground != shell { noteForeground(foreground) } else { lastForegroundPID = nil }
         var name = "local " + shellName
         if foreground != shell, let program = ProcessInspector.name(of: foreground) {
             if programDropped { programDropped = false }
@@ -121,12 +212,16 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     // MARK: private
 
     private func noteOutput() {
+        if let keys = pendingInput {
+            pendingInput = nil
+            session.send(Array(keys.utf8)[...])
+        }
         if !isSelected, status == .running, !hasUnseenOutput { hasUnseenOutput = true }
     }
 
     private func processEnded(exitCode: Int32?) {
         let code = exitCode.map(String.init) ?? "signal"
-        session.finishScreen(banner: "\r\n\u{1b}[2m[session ended, exit \(code); history kept in memory and on disk]\u{1b}[0m\r\n")
+        session.finishScreen(banner: "\r\n\u{1b}[2m[session ended, exit \(code); history kept in memory and on disk; ⌘R reconnects]\u{1b}[0m\r\n")
         status = .ended(exitCode: exitCode)
         endedAt = Date()
         programDropped = false

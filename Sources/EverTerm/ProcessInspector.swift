@@ -1,4 +1,5 @@
 import Darwin
+import EverTermCore
 import Foundation
 
 /// Reads name and working directory of local processes (our own children only).
@@ -19,6 +20,19 @@ enum ProcessInspector {
         return withUnsafePointer(to: &info.pvi_cdir.vip_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
         }
+    }
+
+    /// #18: full command line of a process, e.g. ["ssh", "-p", "2222", "host"].
+    static func arguments(of pid: pid_t) -> [String]? {
+        var mib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+        var argmax: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctl(&mib, 2, &argmax, &size, nil, 0) == 0, argmax > 0 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: Int(argmax))
+        mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        size = buffer.count
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        return ProcessArguments.parse(Array(buffer.prefix(size)))
     }
 
     /// "/Users/me/Projects/x" -> "~/Projects/x"

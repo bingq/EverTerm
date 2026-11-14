@@ -27,8 +27,10 @@ final class SessionStore: ObservableObject {
     var selected: SessionModel? { sessions.first { $0.id == selectedID } }
 
     func newSession() {
-        let directory = selected?.directory ?? NSHomeDirectory()
-        let model = SessionModel(directory: directory)
+        add(SessionModel(directory: selected?.directory ?? NSHomeDirectory()))
+    }
+
+    private func add(_ model: SessionModel) {
         // Re-publish the model's changes so the sidebar sections regroup.
         forwarders[model.id] = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -65,6 +67,41 @@ final class SessionStore: ObservableObject {
         guard !order.isEmpty else { return }
         let current = order.firstIndex { $0.id == selectedID } ?? 0
         selectedID = order[(current + step + order.count) % order.count].id
+    }
+
+    // MARK: reconnect (#18)
+
+    /// ⌘R. Dropped connection, shell at its prompt: run the saved command again here.
+    /// Ended session: new session in the same directory running it, same custom name.
+    /// The command is shown once before it first runs (it can hold a secret).
+    func reconnect(_ model: SessionModel) {
+        switch model.reconnectPlan {
+        case .rerun(let command):
+            guard confirm(command, for: model) else { return }
+            model.rerun(command)
+        case .newSession(_, let command):
+            if let command, !confirm(command, for: model) { return }
+            var carry = model.carry()
+            carry.confirmed = true
+            add(SessionModel(directory: carry.directory ?? NSHomeDirectory(), carry: carry))
+        case .busy, .nothingSaved:
+            NSSound.beep()
+        }
+    }
+
+    func typeResumeCommand(_ model: SessionModel) {
+        if !model.typeResumeCommand() { NSSound.beep() }
+    }
+
+    private func confirm(_ command: String, for model: SessionModel) -> Bool {
+        if model.reconnectConfirmed { return true }
+        let alert = NSAlert()
+        alert.messageText = "Reconnect “\(model.displayName)”?"
+        alert.informativeText = "EverTerm will run:\n\n\(command)\n\nThis command line is saved only on this Mac, in the session's meta.json. "
+            + "Use Forget Reconnect Command in the sidebar menu to clear it."
+        alert.addButton(withTitle: "Reconnect")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func beginRename() {

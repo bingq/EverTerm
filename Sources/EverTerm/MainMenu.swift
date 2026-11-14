@@ -15,6 +15,8 @@ enum MainMenu {
         shell.addItem(item("New Session", #selector(AppDelegate.newSession(_:)), "n", target: target, alternate: true))
         shell.addItem(item("End / Remove Session", #selector(AppDelegate.closeSession(_:)), "w", target: target))
         shell.addItem(item("Rename Session…", #selector(AppDelegate.renameSession(_:)), "r", [.command, .shift], target: target))
+        shell.addItem(item("Reconnect", #selector(AppDelegate.reconnectSession(_:)), "r", target: target))
+        shell.addItem(item("Type Claude Resume Command", #selector(AppDelegate.typeResumeCommand(_:)), "r", [.command, .control], target: target))
         shell.addItem(.separator())
         shell.addItem(item("Reset Terminal", #selector(AppDelegate.resetTerminal(_:)), "r", [.command, .option], target: target))
         shell.addItem(item("Show Shell History", #selector(AppDelegate.showShellHistory(_:)), "h", [.command, .shift], target: target))
