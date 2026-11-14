@@ -59,6 +59,14 @@ if [ -d /opt/homebrew/bin ]; then
         info "no compiled program found in /opt/homebrew/bin"
     fi
 fi
+echo "== 3c. Apple's own program copied into your home folder (path or signature?)"
+copy="$real_home/.everterm-probe-echo"
+if cp /bin/echo "$copy" 2>/dev/null; then
+    check "run Apple-signed echo from home" "$copy" ok
+    rm -f "$copy"
+else
+    info "could not copy /bin/echo into home"
+fi
 for tool in et mosh brew; do
     if p="$(command -v "$tool" 2>/dev/null)"; then check "$tool runs ($p)" "$p" --version; else info "$tool not on PATH"; fi
 done

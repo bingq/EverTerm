@@ -17,6 +17,8 @@
 # the probe script. Run it with: open dist-sandbox/EverTerm.app  (do not copy it to /Applications).
 # EVERTERM_SANDBOX_TTY=1 adds a test-only sandbox exception that allows terminal control calls
 # (ioctl) on any file; EVERTERM_SANDBOX_TTY=narrow allows them only on the pty devices.
+# EVERTERM_SANDBOX_EXEC=1 adds a test-only exception to run programs from /opt/homebrew,
+# /usr/local and the home folder (the sandbox refuses that even for granted folders).
 set -euo pipefail
 VERSION="${1:?usage: scripts/release.sh <version> [build]}"
 BUILD="${2:-1}"
@@ -56,23 +58,26 @@ if [ "$SANDBOX" = "1" ]; then
     codesign --force --sign - --entitlements scripts/sandbox-helper.entitlements "$APP/Contents/Helpers/ssh"
     ENT=scripts/sandbox.entitlements
     # 1 = any file (wide test); narrow = only the pty devices, the rule to ask App Review for.
+    # EVERTERM_SANDBOX_EXEC=1: also allow running programs from /opt/homebrew, /usr/local, home.
     TTY="${EVERTERM_SANDBOX_TTY:-0}"
-    RULE=""
-    [ "$TTY" = "1" ] && RULE='(allow file-ioctl)'
-    [ "$TTY" = "narrow" ] && RULE='(allow file-ioctl (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+$"))'
-    if [ -n "$RULE" ]; then
+    RULES=()
+    [ "$TTY" = "1" ] && RULES+=('(allow file-ioctl)')
+    [ "$TTY" = "narrow" ] && RULES+=('(allow file-ioctl (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+$"))')
+    [ "${EVERTERM_SANDBOX_EXEC:-0}" = "1" ] && RULES+=('(allow process-exec (subpath "/opt/homebrew") (subpath "/usr/local") (regex #"^/Users/[^/]+/"))')
+    if [ ${#RULES[@]} -gt 0 ]; then
         ENT="$OUT/sandbox-tty.entitlements"
-        python3 - "$RULE" scripts/sandbox.entitlements "$ENT" <<'PY'
+        python3 - scripts/sandbox.entitlements "$ENT" "${RULES[@]}" <<'PY'
 import sys
-rule, src, dst = sys.argv[1:]
 from xml.sax.saxutils import escape
+src, dst, rules = sys.argv[1], sys.argv[2], sys.argv[3:]
+items = "".join("<string>" + escape(r) + "</string>" for r in rules)
 s = open(src).read().replace("</dict>",
     "    <key>com.apple.security.temporary-exception.sbpl</key>\n"
-    "    <array><string>" + escape(rule) + "</string></array>\n</dict>")
+    "    <array>" + items + "</array>\n</dict>")
 open(dst, "w").write(s)
 PY
         plutil -lint "$ENT"
-        echo "test exception ($TTY): $RULE"
+        printf 'test exception: %s\n' "${RULES[@]}"
     fi
     codesign --force --sign - --entitlements "$ENT" "$APP"
     codesign -d --entitlements - "$APP" 2>/dev/null | grep -q app-sandbox && echo "sandbox: on"
