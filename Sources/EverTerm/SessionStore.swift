@@ -72,7 +72,8 @@ final class SessionStore: ObservableObject {
     // MARK: reconnect (#18)
 
     /// ⌘R. Dropped connection, shell at its prompt: run the saved command again here.
-    /// Ended session: new session in the same directory running it, same custom name.
+    /// Ended session: a new shell in the same session (same place, history above kept),
+    /// same directory and custom name, running the saved command.
     /// The command is shown once before it first runs (it can hold a secret).
     func reconnect(_ model: SessionModel) {
         switch model.reconnectPlan {
@@ -81,9 +82,8 @@ final class SessionStore: ObservableObject {
             model.rerun(command)
         case .newSession(_, let command):
             if let command, !confirm(command, for: model) { return }
-            var carry = model.carry()
-            carry.confirmed = true
-            add(SessionModel(directory: carry.directory ?? NSHomeDirectory(), carry: carry))
+            model.restart()
+            selectedID = model.id
         case .busy:
             NSSound.beep()
         case .nothingSaved:

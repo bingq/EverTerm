@@ -11,7 +11,7 @@ public enum ReconnectRules {
     public enum Plan: Equatable, Sendable {
         /// Shell alive and at its prompt: type the saved command again in this session.
         case rerun(command: String)
-        /// Session ended: open a new session in this directory, running the command (if any).
+        /// Session ended: a new shell in the same session, in this directory, running the command (if any).
         case newSession(directory: String?, command: String?)
         /// A program still owns the terminal (the connection is up): nothing to do.
         case busy

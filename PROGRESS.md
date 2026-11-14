@@ -120,3 +120,6 @@
 - Tests: 55, all pass on Linux. App code not compiled here.
 - Mac run 2: orange dot and the first-reconnect alert work. The alert showed the launcher's inner command line (`<runner> <cached script file> <args>`), not what was typed. Now: when the job is `<runner> /path/<name>[.ext] <args>` and `<name>` is a command on PATH, `<name> <args>` is saved. Sidebar subtitle shortened to "connection ended · <dir>" (it was cut off); the dot's tooltip names ⌘R.
 - Mac run 3: the alert showed the typed launcher command. While a connection has ended, the session is now named after the saved command (sidebar and alert: "Reconnect “et host”?"), not "local zsh". Back to the automatic name when the next program starts.
+
+## 2026-11-14: #22 ⌘R restarts an ended session in place
+- After the #18 Mac checks (all 4 passed on 4eb13c3, #18 closed): ⌘R on an ended (grey) session now starts the new shell inside the same session instead of adding a second sidebar entry. The old history stays above in the same terminal, then the dim reconnect line; same name, same directory, saved command runs. A new log folder is started, as for any new shell.

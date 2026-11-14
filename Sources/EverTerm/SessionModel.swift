@@ -18,7 +18,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     let id = UUID()
     let terminalView: TerminalView
-    let startedAt = Date()
+    private(set) var startedAt = Date()
     private(set) var session: TerminalSession!
 
     /// The foreground program's title (e.g. "Cross-screen text generation"); the program
@@ -55,11 +55,12 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         var resumeHint: String?
         var customName: String?
         var confirmed: Bool
-        var fromName: String
+        var fromName: String?        // nil: restarted in place, so no "from ended session" note
     }
 
     private var title = ""
     private let shellName: String
+    private let shellPath: String
 
     var isSelected = false {
         didSet { if isSelected, hasUnseenOutput { hasUnseenOutput = false } }
@@ -74,6 +75,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     init(directory: String = NSHomeDirectory(), carry: Carry? = nil) {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        shellPath = shell
         shellName = (shell as NSString).lastPathComponent
         autoName = "local " + shellName
         self.directory = directory
@@ -85,7 +87,13 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         terminalView.scrollerStyle = .legacy
         terminalView.autoresizingMask = [.width, .height]
         terminalView.terminalDelegate = self
+        startShell(directory: directory, carry: carry)
+    }
 
+    /// A new shell in this session's terminal. With a carry (reconnect): the saved name and
+    /// command come along, a dim marker line goes first, and the command runs at the first prompt.
+    private func startShell(directory: String, carry: Carry?) {
+        let shell = shellPath
         session = TerminalSession(view: terminalView, command: shell)
         session.onExit = { [weak self] code in self?.processEnded(exitCode: code) }
         session.onOutput = { [weak self] in self?.noteOutput() }
@@ -103,6 +111,25 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
             session.mark(reconnectMarker(from: carry.fromName))
         }
         session.start(executable: shell, args: [], execName: "-" + shellName, directory: directory)
+    }
+
+    /// #18: ⌘R on an ended session: a new shell in this same session, so it keeps its place
+    /// in the sidebar and the old history stays above. Same directory, same name, and the
+    /// saved command (if any) runs at the first prompt. New log folder, like any new shell.
+    func restart() {
+        var carry = carry()
+        carry.confirmed = true
+        carry.fromName = nil
+        status = .running
+        endedAt = nil
+        startedAt = Date()
+        programDropped = false
+        lastForegroundPID = nil
+        foregroundIsConnect = false
+        startShell(directory: carry.directory ?? NSHomeDirectory(), carry: carry)
+        // The view's size did not change, so tell the new shell how big it is.
+        let terminal = terminalView.getTerminal()
+        session.resize(cols: terminal.cols, rows: terminal.rows)
     }
 
     // MARK: actions
