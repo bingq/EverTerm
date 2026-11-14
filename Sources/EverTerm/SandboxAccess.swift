@@ -1,4 +1,5 @@
 import AppKit
+import EverTermCore
 
 /// #23 step 1: folder access for the sandboxed test build (`EVERTERM_SANDBOX=1 scripts/release.sh`).
 /// In the normal (unsandboxed) app none of this runs and its menu item is not added.
