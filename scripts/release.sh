@@ -16,7 +16,7 @@
 # are separate), ad-hoc signed with the App Sandbox, with a copy of ssh inside the bundle and
 # the probe script. Run it with: open dist-sandbox/EverTerm.app  (do not copy it to /Applications).
 # EVERTERM_SANDBOX_TTY=1 adds a test-only sandbox exception that allows terminal control calls
-# (ioctl) on the pty, to check whether those are what the sandbox blocks.
+# (ioctl) on any file; EVERTERM_SANDBOX_TTY=narrow allows them only on the pty devices.
 set -euo pipefail
 VERSION="${1:?usage: scripts/release.sh <version> [build]}"
 BUILD="${2:-1}"
@@ -55,11 +55,24 @@ echo "== sign (${IDENTITY/#-/ad-hoc})"
 if [ "$SANDBOX" = "1" ]; then
     codesign --force --sign - --entitlements scripts/sandbox-helper.entitlements "$APP/Contents/Helpers/ssh"
     ENT=scripts/sandbox.entitlements
-    if [ "${EVERTERM_SANDBOX_TTY:-0}" = "1" ]; then
+    # 1 = any file (wide test); narrow = only the pty devices, the rule to ask App Review for.
+    TTY="${EVERTERM_SANDBOX_TTY:-0}"
+    RULE=""
+    [ "$TTY" = "1" ] && RULE='(allow file-ioctl)'
+    [ "$TTY" = "narrow" ] && RULE='(allow file-ioctl (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+$"))'
+    if [ -n "$RULE" ]; then
         ENT="$OUT/sandbox-tty.entitlements"
-        sed 's|</dict>|    <key>com.apple.security.temporary-exception.sbpl</key>\n    <array><string>(allow file-ioctl)</string></array>\n</dict>|' \
-            scripts/sandbox.entitlements > "$ENT"
-        echo "test exception: pty ioctl allowed"
+        python3 - "$RULE" scripts/sandbox.entitlements "$ENT" <<'PY'
+import sys
+rule, src, dst = sys.argv[1:]
+from xml.sax.saxutils import escape
+s = open(src).read().replace("</dict>",
+    "    <key>com.apple.security.temporary-exception.sbpl</key>\n"
+    "    <array><string>" + escape(rule) + "</string></array>\n</dict>")
+open(dst, "w").write(s)
+PY
+        plutil -lint "$ENT"
+        echo "test exception ($TTY): $RULE"
     fi
     codesign --force --sign - --entitlements "$ENT" "$APP"
     codesign -d --entitlements - "$APP" 2>/dev/null | grep -q app-sandbox && echo "sandbox: on"
