@@ -123,3 +123,8 @@
 
 ## 2026-11-14: #22 ⌘R restarts an ended session in place
 - After the #18 Mac checks (all 4 passed on 4eb13c3, #18 closed): ⌘R on an ended (grey) session now starts the new shell inside the same session instead of adding a second sidebar entry. The old history stays above in the same terminal, then the dim reconnect line; same name, same directory, saved command runs. A new log folder is started, as for any new shell.
+
+## 2026-11-14: #23 App Store edition, step 1 (branch app-store)
+- Sandboxed test build: `EVERTERM_SANDBOX=1 scripts/release.sh 0.9` makes dist-sandbox/EverTerm.app (bundle ID + `.sandboxtest`), ad-hoc signed with the App Sandbox (network client, user-selected files, app-scoped bookmarks), a copy of ssh in Contents/Helpers (sandbox + inherit), and scripts/sandbox-probe.sh in Resources.
+- In the sandbox only: Shell > Grant Folder Access… (security-scoped bookmarks, restored at launch); the shell gets the real HOME, SSH_AUTH_SOCK, EVERTERM_SANDBOX=1 and EVERTERM_PROBE. The normal build is unchanged (SandboxAccess does nothing unsandboxed).
+- The probe prints PASS/FAIL for folders, ssh-agent, programs (system ssh, bundled ssh, git, Homebrew, et), network (ssh to github.com with your key, local listen for port forwarding).

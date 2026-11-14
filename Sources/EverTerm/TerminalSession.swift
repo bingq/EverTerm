@@ -56,7 +56,7 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
         process.startProcess(
             executable: executable,
             args: args,
-            environment: Terminal.getEnvironmentVariables(termName: "xterm-256color"),
+            environment: SandboxAccess.shellEnvironment(Terminal.getEnvironmentVariables(termName: "xterm-256color")),
             execName: execName,
             currentDirectory: directory
         )

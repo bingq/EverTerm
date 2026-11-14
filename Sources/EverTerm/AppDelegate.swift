@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: SessionStore? { main?.store }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SandboxAccess.restore()                   // #23: no-op unless sandboxed
         NSApp.mainMenu = MainMenu.build(target: self)
         // `swift run` starts a bare executable, which has no .app bundle for macOS to
         // read the icon from, so set the Dock icon here. A real EverTerm.app (scripts/release.sh)
@@ -53,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showShellHistory(_ sender: Any?) { main?.showShellHistory() }
+
+    @objc func grantFolderAccess(_ sender: Any?) { SandboxAccess.grant() }
 
     @objc func showSessionLogs(_ sender: Any?) {
         let root = SessionLogger.rootURL

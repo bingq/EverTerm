@@ -10,6 +10,11 @@
 # Optional, only if you ever get an Apple Developer ID certificate: set
 #   EVERTERM_SIGN_IDENTITY="Developer ID Application: ..."  and  EVERTERM_NOTARIZE=1
 # (with notary credentials stored as profile "everterm-notary") to sign and notarize.
+#
+# #23 step 1, sandboxed test build:  EVERTERM_SANDBOX=1 scripts/release.sh 0.9
+# Builds dist-sandbox/EverTerm.app (bundle ID + ".sandboxtest", so its container and settings
+# are separate), ad-hoc signed with the App Sandbox, with a copy of ssh inside the bundle and
+# the probe script. Run it with: open dist-sandbox/EverTerm.app  (do not copy it to /Applications).
 set -euo pipefail
 VERSION="${1:?usage: scripts/release.sh <version> [build]}"
 BUILD="${2:-1}"
@@ -17,9 +22,12 @@ BUNDLE_ID="${EVERTERM_BUNDLE_ID:-io.github.bingq.EverTerm}"
 IDENTITY="${EVERTERM_SIGN_IDENTITY:--}"
 NOTARIZE="${EVERTERM_NOTARIZE:-0}"
 PROFILE="${EVERTERM_NOTARY_PROFILE:-everterm-notary}"
+SANDBOX="${EVERTERM_SANDBOX:-0}"
+[ "$SANDBOX" = "1" ] && BUNDLE_ID="$BUNDLE_ID.sandboxtest"
 
 cd "$(dirname "$0")/.."
-OUT=dist; APP="$OUT/EverTerm.app"
+OUT=dist; [ "$SANDBOX" = "1" ] && OUT=dist-sandbox
+APP="$OUT/EverTerm.app"
 rm -rf "$OUT"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "== build (release, Apple silicon + Intel)"
@@ -34,9 +42,19 @@ iconutil -c icns Icon/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 sed -e "s/__BUNDLE_ID__/$BUNDLE_ID/" -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" \
     scripts/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist"
+if [ "$SANDBOX" = "1" ]; then
+    mkdir -p "$APP/Contents/Helpers"
+    cp /usr/bin/ssh "$APP/Contents/Helpers/ssh"
+    cp scripts/sandbox-probe.sh "$APP/Contents/Resources/sandbox-probe.sh"
+    chmod +x "$APP/Contents/Resources/sandbox-probe.sh"
+fi
 
 echo "== sign (${IDENTITY/#-/ad-hoc})"
-if [ "$IDENTITY" = "-" ]; then
+if [ "$SANDBOX" = "1" ]; then
+    codesign --force --sign - --entitlements scripts/sandbox-helper.entitlements "$APP/Contents/Helpers/ssh"
+    codesign --force --sign - --entitlements scripts/sandbox.entitlements "$APP"
+    codesign -d --entitlements - "$APP" 2>/dev/null | grep -q app-sandbox && echo "sandbox: on"
+elif [ "$IDENTITY" = "-" ]; then
     codesign --force --sign - "$APP"
 else
     codesign --force --timestamp --options runtime --entitlements scripts/entitlements.plist --sign "$IDENTITY" "$APP"
