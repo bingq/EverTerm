@@ -47,6 +47,54 @@ final class ReconnectTests: XCTestCase {
         XCTAssertNil(R.savedCommand(argv: []))
     }
 
+    // MARK: launchers and the job's other processes (Mac run 1 of #18)
+
+    /// A launcher you type, with et kept in a private folder (not on PATH) underneath it.
+    let privateET = ["/Users/me/.devbox/tools/et", "devbox.ssh.et"]
+
+    func testLauncherIsSavedAsTyped() {
+        XCTAssertEqual(R.savedCommand(job: ["devbox", "connect"], others: [privateET]), ["devbox", "connect"])
+        // Launcher script: the kernel shows `bash /usr/local/bin/devbox connect`.
+        XCTAssertEqual(R.savedCommand(job: ["/bin/bash", "/usr/local/bin/devbox", "connect"], others: [privateET]),
+                       ["/usr/local/bin/devbox", "connect"])
+        // Interactive ssh underneath, with options.
+        XCTAssertEqual(R.savedCommand(job: ["jump"], others: [["ssh", "-p", "2222", "-i", "/k", "me@host"]]), ["jump"])
+        XCTAssertEqual(R.savedCommand(job: ["jump"], others: [["ssh", "-t", "host", "tmux", "attach"]]), ["jump"])
+    }
+
+    func testDirectConnectStillWinsOverItsChildren() {
+        XCTAssertEqual(R.savedCommand(job: ["ssh", "host"], others: [["ssh", "-W", "x:22", "jump"]]), ["ssh", "host"])
+        XCTAssertNil(R.savedCommand(job: ["vim", "notes"], others: []))
+        XCTAssertNil(R.savedCommand(job: [], others: [privateET]))
+    }
+
+    func testOneShotSSHUnderAToolIsNotSaved() {
+        XCTAssertNil(R.savedCommand(job: ["git", "push"],
+                                    others: [["ssh", "-o", "SendEnv=GIT_PROTOCOL", "git@github.com", "git-receive-pack 'me/r.git'"]]))
+        XCTAssertNil(R.savedCommand(job: ["rsync", "-a", "x", "host:y"], others: [["ssh", "-l", "me", "host", "rsync", "--server", "."]]))
+        XCTAssertNil(R.savedCommand(job: ["scp", "f", "host:"], others: [["/usr/bin/ssh", "-x", "-oForwardAgent=no", "host", "scp", "-t", "."]]))
+        XCTAssertNil(R.savedCommand(job: ["make"], others: [["cc", "-c", "a.c"]]))
+    }
+
+    func testSSHRemoteCommandParsing() {
+        XCTAssertFalse(SSHArguments.runsRemoteCommand(["host"], autossh: false))
+        XCTAssertFalse(SSHArguments.runsRemoteCommand(["-p", "2222", "host"], autossh: false))
+        XCTAssertFalse(SSHArguments.runsRemoteCommand(["-p2222", "-A", "host"], autossh: false))
+        XCTAssertTrue(SSHArguments.runsRemoteCommand(["-p2222", "host", "uptime"], autossh: false))
+        XCTAssertTrue(SSHArguments.runsRemoteCommand(["-o", "X=1", "host", "ls"], autossh: false))
+        XCTAssertFalse(SSHArguments.runsRemoteCommand(["-tt", "host", "htop"], autossh: false))
+        XCTAssertFalse(SSHArguments.runsRemoteCommand(["-M", "0", "host"], autossh: true))
+        XCTAssertTrue(SSHArguments.runsRemoteCommand(["-M", "host", "ls"], autossh: false))  // ssh -M takes no value
+        XCTAssertTrue(SSHArguments.runsRemoteCommand(["--", "host", "ls"], autossh: false))
+    }
+
+    func testPrivateFolderProgramKeepsItsPath() {
+        // et started by a launcher that exec'd it: not on PATH, so keep the full path.
+        XCTAssertEqual(R.savedCommand(argv: privateET, typedName: { $0 }), privateET)
+        XCTAssertEqual(R.savedCommand(argv: ["/usr/bin/ssh", "host"], typedName: R.baseName), ["ssh", "host"])
+        XCTAssertEqual(R.savedCommand(argv: ["et", "host"], typedName: { _ in "wrong" }), ["et", "host"])  // typed bare: as is
+    }
+
     func testShellQuoting() {
         XCTAssertEqual(ShellCommand.join(["ssh", "-p", "2222", "me@host"]), "ssh -p 2222 me@host")
         XCTAssertEqual(ShellCommand.join(["ssh", "host", "ls ~/x"]), "ssh host 'ls ~/x'")

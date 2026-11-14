@@ -30,7 +30,12 @@ public enum ReconnectRules {
     /// The command line to save for a foreground program, or nil if it isn't a connect program.
     /// Script launchers are unwrapped: mosh is a Perl script, so the process shows up as
     /// `perl /path/to/mosh host`. Its helper mosh-client is not a command you type: nil.
-    public static func savedCommand(argv: [String]) -> [String]? {
+    ///
+    /// `typedName` turns the program path into what to type: the short name when it is on
+    /// PATH (`/usr/bin/ssh` -> `ssh`), the full path when it is not (a tool kept in a private
+    /// folder and started by a launcher). Default: always the short name.
+    public static func savedCommand(argv: [String],
+                                    typedName: (String) -> String = { baseName($0) }) -> [String]? {
         var args = argv
         if args.count >= 2, interpreters.contains(baseName(args[0])),
            connectPrograms.contains(baseName(args[1])) {
@@ -38,8 +43,35 @@ public enum ReconnectRules {
         }
         guard let first = args.first, connectPrograms.contains(baseName(first)) else { return nil }
         guard args.count >= 2 else { return nil }   // bare `ssh` prints usage; nothing to reconnect to
-        args[0] = baseName(first)                    // `/usr/bin/ssh host` -> `ssh host` (uses PATH, like you typed it)
+        args[0] = first.contains("/") ? typedName(first) : first
         return args
+    }
+
+    /// The command line to save for a whole job: the program you typed (`job`) and the
+    /// processes it started (`others`). A launcher you type (`devbox connect`) that runs a
+    /// connect program underneath is saved as typed, so ⌘R runs the launcher again.
+    /// ssh run by another tool to do one thing (git push, rsync, scp: a command after the
+    /// host, no -t) does not count, so `git push` is never saved.
+    public static func savedCommand(job: [String], others: [[String]],
+                                    typedName: (String) -> String = { baseName($0) }) -> [String]? {
+        if let direct = savedCommand(argv: job, typedName: typedName) { return direct }
+        guard !job.isEmpty, others.contains(where: isInteractiveConnect) else { return nil }
+        var args = job
+        // A launcher script shows up as `bash /usr/local/bin/devbox connect`: drop the interpreter.
+        if args.count >= 2, interpreters.contains(baseName(args[0])), !args[1].hasPrefix("-") {
+            args.removeFirst()
+        }
+        return args
+    }
+
+    /// A connect program that gives you a remote shell (not one remote command).
+    static func isInteractiveConnect(_ argv: [String]) -> Bool {
+        guard let args = savedCommand(argv: argv) else { return false }
+        switch args[0] {
+        case "ssh": return !SSHArguments.runsRemoteCommand(Array(args.dropFirst()), autossh: false)
+        case "autossh": return !SSHArguments.runsRemoteCommand(Array(args.dropFirst()), autossh: true)
+        default: return true
+        }
     }
 
     /// Keys sent to the shell to run a command: Ctrl-U clears anything half-typed first.
@@ -49,8 +81,42 @@ public enum ReconnectRules {
 
     private static let interpreters: Set<String> = ["perl", "perl5", "python", "python3", "sh", "bash", "zsh"]
 
-    static func baseName(_ path: String) -> String {
+    public static func baseName(_ path: String) -> String {
         path.split(separator: "/").last.map(String.init) ?? path
+    }
+}
+
+/// Reads an ssh argument list: does it run one remote command instead of a login shell?
+enum SSHArguments {
+    /// ssh options that take a value (`-p 2222` or `-p2222`). autossh adds `-M port`.
+    private static let withValue = Set("BbcDEeFIiJLlmOoPpQRSWw")
+
+    static func runsRemoteCommand(_ args: [String], autossh: Bool) -> Bool {
+        var positional: [String] = []
+        var forcedTTY = false
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if !positional.isEmpty || !arg.hasPrefix("-") || arg == "-" {
+                positional.append(arg)
+                continue
+            }
+            if arg == "--" {
+                positional.append(contentsOf: args[index...])
+                break
+            }
+            for (offset, flag) in arg.dropFirst().enumerated() {
+                if flag == "t" { forcedTTY = true }
+                if withValue.contains(flag) || (autossh && flag == "M") {
+                    if offset == arg.count - 2 { index += 1 }   // value is the next word
+                    break                                     // value is the rest of this word
+                }
+            }
+        }
+        // positional[0] is the host; anything after it is a remote command.
+        // -t asks for a terminal: an interactive command such as `tmux attach`.
+        return positional.count > 1 && !forcedTTY
     }
 }
 

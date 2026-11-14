@@ -32,8 +32,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     @Published private(set) var status: Status = .running
     @Published private(set) var endedAt: Date? = nil
     @Published private(set) var hasUnseenOutput = false
-    /// A program (ssh, et...) died without leaving full-screen mode; cleared
-    /// when the next program starts.
+    /// A connect program (ssh, et...) ended with the shell still alive, or any program
+    /// died without leaving full-screen mode; cleared when the next program starts.
     @Published private(set) var programDropped = false
 
     /// #18: last connect command run in this session (ssh, et, mosh...) and where from,
@@ -44,6 +44,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     /// The saved command was shown once (it can hold a secret); later ⌘R runs it straight away.
     var reconnectConfirmed = false
     private var lastForegroundPID: pid_t?
+    private var foregroundChecks = 0
+    private var foregroundIsConnect = false   // the current job holds a connect program
     private var pendingInput: String?      // typed into the shell when it first prints
 
     /// What a reconnect carries from an ended session into the new one.
@@ -160,11 +162,23 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     }
 
     /// #18: save the command line of a connect program when it takes the terminal.
+    /// A launcher (`devbox connect`) can take a while (sign-in) before it starts its connect
+    /// program, so the job is looked at once a second for up to a minute until one shows up.
     private func noteForeground(_ pid: pid_t) {
-        guard pid != lastForegroundPID else { return }
-        lastForegroundPID = pid
-        guard let argv = ProcessInspector.arguments(of: pid),
-              let command = ReconnectRules.savedCommand(argv: argv) else { return }
+        if pid != lastForegroundPID {
+            lastForegroundPID = pid
+            foregroundChecks = 0
+            foregroundIsConnect = false
+        }
+        guard !foregroundIsConnect, foregroundChecks < 60 else { return }
+        foregroundChecks += 1
+        guard let argv = ProcessInspector.arguments(of: pid) else { return }
+        let direct = ReconnectRules.savedCommand(argv: argv, typedName: ProcessInspector.typedName)
+        let others = direct == nil ? ProcessInspector.otherArguments(inJob: pid) : []
+        guard let command = direct
+                ?? ReconnectRules.savedCommand(job: argv, others: others, typedName: ProcessInspector.typedName)
+        else { return }
+        foregroundIsConnect = true
         reconnectCommand = command
         reconnectDirectory = directory
         session.logger.updateReconnect(command: command, directory: directory, resumeHint: resumeHint)
@@ -178,7 +192,15 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
             session.logger.update(directory: cwd)
         }
         let foreground = session.foregroundProcessGroup() ?? shell
-        if foreground != shell { noteForeground(foreground) } else { lastForegroundPID = nil }
+        if foreground != shell {
+            noteForeground(foreground)
+        } else {
+            // A connect job ended and the shell has the terminal back: the connection is gone
+            // (dropped or closed), so ⌘R has something to do. Orange until the next program starts.
+            if lastForegroundPID != nil, foregroundIsConnect { programDropped = true }
+            lastForegroundPID = nil
+            foregroundIsConnect = false
+        }
         var name = "local " + shellName
         if foreground != shell, let program = ProcessInspector.name(of: foreground) {
             if programDropped { programDropped = false }
@@ -193,7 +215,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         let dir = directory.map(ProcessInspector.abbreviate) ?? ""
         switch status {
         case .running:
-            if programDropped { return "connection dropped · \(dir)" }
+            if programDropped { return "connection ended · ⌘R reconnects · \(dir)" }
             return [dir, "since " + Self.clock.string(from: startedAt)]
                 .filter { !$0.isEmpty }.joined(separator: " · ")
         case .ended(let code):

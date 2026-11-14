@@ -154,7 +154,7 @@ struct SessionRow: View {
 
     private var statusHelp: String {
         switch model.status {
-        case .running: return model.programDropped ? "Running · last program's connection dropped" : "Running"
+        case .running: return model.programDropped ? "Running · connection ended; ⌘R reconnects" : "Running"
         case .ended(let code): return code.map { "Ended, exit \($0)" } ?? "Ended by a signal"
         }
     }

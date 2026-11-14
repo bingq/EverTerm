@@ -84,8 +84,14 @@ final class SessionStore: ObservableObject {
             var carry = model.carry()
             carry.confirmed = true
             add(SessionModel(directory: carry.directory ?? NSHomeDirectory(), carry: carry))
-        case .busy, .nothingSaved:
+        case .busy:
             NSSound.beep()
+        case .nothingSaved:
+            let alert = NSAlert()
+            alert.messageText = "Nothing to reconnect in “\(model.displayName)”"
+            alert.informativeText = "No ssh, et or mosh connection was seen in this session. "
+                + "Start one once (directly or through a launcher command); after it ends, ⌘R runs it again."
+            alert.runModal()
         }
     }
 

@@ -111,3 +111,10 @@
 - EverTermCore: ReconnectRules (what ⌘R does, which commands are saved, mosh's Perl wrapper unwrapped), ShellCommand (quoting), ProcessArguments (KERN_PROCARGS2 parser), ResumeHintScanner; AnsiStripper moved here from the app so the resume hint is tested on the same strip-then-scan path. The resume test uses the bytes Claude Code writes on exit in a real Mac session, at read sizes 1 to the whole block.
 - Tests: 50, all pass on Linux (Swift 6.1.2). App code not compiled here.
 - Not done: sessions from earlier app runs (needs the on-disk session list, #11 4b); the remote directory.
+
+### #18 Mac run 1 fixes
+- Mac run 1: history kept after an `et` drop, but no orange dot and ⌘R silent. Two causes: (1) the dot only turned orange when a program died in full-screen mode; (2) the connection was started through a launcher command, so the job's program was the launcher, not `et`, and nothing was saved (meta.json had no reconnectCommand).
+- Now: the whole job is looked at (process group plus children, once a second for up to a minute while a launcher signs in). A launcher that runs a connect program underneath is saved as typed. ssh run by another tool for one remote command (git push, rsync, scp) is not. A program outside PATH keeps its full path.
+- When a connect job ends and the shell takes the terminal back, the dot turns orange ("connection ended · ⌘R reconnects").
+- ⌘R with nothing saved shows a short "Nothing to reconnect" message instead of a silent beep.
+- Tests: 55, all pass on Linux. App code not compiled here.

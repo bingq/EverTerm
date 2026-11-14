@@ -35,6 +35,40 @@ enum ProcessInspector {
         return ProcessArguments.parse(Array(buffer.prefix(size)))
     }
 
+    /// #18: command lines of the other processes in a job: its process group, plus everything
+    /// they started (a launcher may start its connect program in a new group). At most 64.
+    static func otherArguments(inJob leader: pid_t) -> [[String]] {
+        var seen: Set<pid_t> = [leader]
+        var queue = pids(PROC_PGRP_ONLY, leader) + pids(PROC_PPID_ONLY, leader)
+        var result: [[String]] = []
+        while result.count < 64, let pid = queue.popLast() {
+            guard seen.insert(pid).inserted else { continue }
+            if let argv = arguments(of: pid) { result.append(argv) }
+            queue += pids(PROC_PPID_ONLY, pid)
+        }
+        return result
+    }
+
+    /// #18: what to type for a program path: its short name when that finds it on PATH,
+    /// else the full path (e.g. a tool in a private folder, started by a launcher).
+    static func typedName(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        let dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin").split(separator: ":")
+        let onPath = dirs.contains { FileManager.default.isExecutableFile(atPath: "\($0)/\(name)") }
+        return onPath ? name : path
+    }
+
+    private static func pids(_ type: Int32, _ value: pid_t) -> [pid_t] {
+        let bytes = proc_listpids(UInt32(type), UInt32(value), nil, 0)
+        guard bytes > 0 else { return [] }
+        var buffer = [pid_t](repeating: 0, count: Int(bytes) / MemoryLayout<pid_t>.size + 16)
+        let filled = buffer.withUnsafeMutableBytes { raw in
+            proc_listpids(UInt32(type), UInt32(value), raw.baseAddress, Int32(raw.count))
+        }
+        guard filled > 0 else { return [] }
+        return buffer.prefix(Int(filled) / MemoryLayout<pid_t>.size).filter { $0 > 0 }
+    }
+
     /// "/Users/me/Projects/x" -> "~/Projects/x"
     static func abbreviate(_ path: String) -> String {
         let home = NSHomeDirectory()
