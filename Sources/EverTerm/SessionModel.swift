@@ -126,10 +126,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         programDropped = false
         lastForegroundPID = nil
         foregroundIsConnect = false
+        // The new shell gets the view's size at start (TerminalSession.getWindowSize).
         startShell(directory: carry.directory ?? NSHomeDirectory(), carry: carry)
-        // The view's size did not change, so tell the new shell how big it is.
-        let terminal = terminalView.getTerminal()
-        session.resize(cols: terminal.cols, rows: terminal.rows)
     }
 
     // MARK: actions
