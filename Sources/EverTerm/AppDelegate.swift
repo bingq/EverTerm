@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main = controller
         controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // #27: sandboxed build: ask once for the folders the shell needs.
+        let store = controller.store
+        DispatchQueue.main.async { AccessPrompt.atLaunch(store: store) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -55,7 +58,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showShellHistory(_ sender: Any?) { main?.showShellHistory() }
 
-    @objc func grantFolderAccess(_ sender: Any?) { SandboxAccess.grant() }
+    @objc func grantFolderAccess(_ sender: Any?) {
+        guard let store else { return }
+        let needs = SandboxAccess.needs()
+        let granted = needs.isEmpty ? SandboxAccess.grant() : AccessPrompt.grantOneByOne(needs)
+        if granted { store.restartShellsAtPrompt(marker: "shell restarted to use the new folder access") }
+    }
+
+    @objc func grantWholeDiskAccess(_ sender: Any?) {
+        if SandboxAccess.grantWholeDisk() {
+            store?.restartShellsAtPrompt(marker: "shell restarted to use the new folder access")
+        }
+    }
 
     @objc func showSessionLogs(_ sender: Any?) {
         let root = SessionLogger.rootURL

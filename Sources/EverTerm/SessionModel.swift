@@ -61,6 +61,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         var confirmed: Bool
         var fromName: String?        // nil: restarted in place, so no "from ended session" note
         var line: String? = nil      // #23: typed command line (shell integration)
+        var marker: String? = nil    // #27: own marker text instead of "reconnected"
+        var runCommand = true        // #27: false = keep the saved command but don't run it
     }
 
     private var title = ""
@@ -105,6 +107,10 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         session.onProgramDropped = { [weak self] in self?.programDropped = true }
         session.logger.onResumeHint = { [weak self] hint in self?.resumeHint = hint }
         session.logger.onShellEvent = { [weak self] event in self?.shellEvent(event) }
+        session.logger.onRefusedPaths = { [weak self] paths in
+            guard let self else { return }
+            self.onAccessRefused?(self, paths)
+        }
         runningLine = nil
         runningIsConnect = false
         if let carry {
@@ -117,9 +123,11 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
             if let name = carry.customName { session.logger.update(customName: name) }
             session.logger.updateReconnect(command: carry.command, directory: carry.directory,
                                            resumeHint: carry.resumeHint, line: carry.line)
-            pendingInput = (carry.line ?? carry.command.map(ShellCommand.join))
-                .map { ReconnectRules.keystrokes(command: $0, pressEnter: true) }
-            session.mark(reconnectMarker(from: carry.fromName))
+            if carry.runCommand {
+                pendingInput = (carry.line ?? carry.command.map(ShellCommand.join))
+                    .map { ReconnectRules.keystrokes(command: $0, pressEnter: true) }
+            }
+            session.mark(carry.marker.map { "── \($0) ──" } ?? reconnectMarker(from: carry.fromName))
         }
         session.start(executable: shell, args: [], execName: "-" + shellName, directory: directory)
     }
@@ -127,10 +135,12 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     /// #18: ⌘R on an ended session: a new shell in this same session, so it keeps its place
     /// in the sidebar and the old history stays above. Same directory, same name, and the
     /// saved command (if any) runs at the first prompt. New log folder, like any new shell.
-    func restart() {
+    func restart(marker: String? = nil, runCommand: Bool = true) {
         var carry = carry()
         carry.confirmed = true
         carry.fromName = nil
+        carry.marker = marker
+        carry.runCommand = runCommand
         status = .running
         endedAt = nil
         startedAt = Date()
@@ -139,6 +149,28 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         foregroundIsConnect = false
         // The new shell gets the view's size at start (TerminalSession.getWindowSize).
         startShell(directory: carry.directory ?? NSHomeDirectory(), carry: carry)
+    }
+
+    // MARK: folder access (#27, sandboxed build)
+
+    /// Set by the store: a program in this session was refused these paths.
+    var onAccessRefused: ((SessionModel, [String]) -> Void)?
+    /// Folders the user said "Not Now" to in this session: not offered again.
+    var declinedFolders: Set<String> = []
+    private var respawnMarker: String?
+
+    /// The shell is at its prompt (nothing else owns the terminal).
+    var isAtPrompt: Bool {
+        guard status == .running, let shell = session.shellPID else { return false }
+        return (session.foregroundProcessGroup() ?? shell) == shell
+    }
+
+    /// End this shell and start a new one in the same session, history above kept, so it gets
+    /// folder access granted after it started. The saved connect command is kept, not run.
+    func respawn(marker: String) {
+        guard status == .running, session.isRunning else { return }
+        respawnMarker = marker
+        session.hangUp()
     }
 
     // MARK: actions
@@ -315,6 +347,11 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     }
 
     private func processEnded(exitCode: Int32?) {
+        if let marker = respawnMarker {
+            respawnMarker = nil
+            restart(marker: marker, runCommand: false)
+            return
+        }
         let code = exitCode.map(String.init) ?? "signal"
         session.finishScreen(banner: "\r\n\u{1b}[2m[session ended, exit \(code); history kept in memory and on disk; ⌘R reconnects]\u{1b}[0m\r\n")
         status = .ended(exitCode: exitCode)

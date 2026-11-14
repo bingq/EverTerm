@@ -23,24 +23,67 @@ enum SandboxAccess {
         }
     }
 
-    /// Shell > Grant Folder Access…: pick a folder (your home folder, ~/.ssh, a tool folder).
-    /// Kept across launches. New sessions get it; already open ones may not (step 1 checks).
-    static func grant() {
+    /// Folder picker (Apple's Powerbox: the user picks, the app can't grant itself), opened at
+    /// `folder` so the user only clicks Grant Access. Kept across launches. Only shells started
+    /// after this get it, so callers offer to restart the shell. Returns whether a folder was granted.
+    @discardableResult
+    static func grant(startingAt folder: String? = nil, message: String? = nil) -> Bool {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.showsHiddenFiles = true
         panel.prompt = "Grant Access"
-        panel.message = "Choose a folder that EverTerm's sessions may use (for example your home folder)."
-        panel.directoryURL = URL(fileURLWithPath: realHome)
+        panel.message = message ?? "Choose a folder that EverTerm's sessions may use (for example your home folder)."
+        panel.directoryURL = URL(fileURLWithPath: folder ?? realHome)
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? url.bookmarkData(options: [.withSecurityScope],
                                                includingResourceValuesForKeys: nil, relativeTo: nil)
-        else { return }
+        else { return false }
         var saved = UserDefaults.standard.array(forKey: key) as? [Data] ?? []
         saved.append(data)
         UserDefaults.standard.set(saved, forKey: key)
         if url.startAccessingSecurityScopedResource() { granted.append(url) }
+        return true
+    }
+
+    /// Shell > Grant Whole Disk Access…: one picker at the disk. Kept out of the first-run
+    /// dialog on purpose (#27): ask only for what the shell needs.
+    @discardableResult
+    static func grantWholeDisk() -> Bool {
+        grant(startingAt: "/", message: "To let EverTerm's sessions use every folder your account can open, click Grant Access with the disk (/) selected.")
+    }
+
+    static var grantedPaths: [String] { granted.map(\.path) }
+
+    /// Can the sandbox list this folder right now?
+    nonisolated static func canRead(_ folder: String) -> Bool {
+        (try? FileManager.default.contentsOfDirectory(atPath: folder)) != nil
+    }
+
+    /// #27: the folders still missing for the shell, with reasons: home first, then folders named in
+    /// the startup files (readable once home is granted), where symlinks there point, and tool folders.
+    static func needs() -> [AccessPlanner.Need] {
+        let home = realHome
+        let files = FileManager.default
+        let zdot = ProcessInfo.processInfo.environment["ZDOTDIR"] ?? home
+        var sources: [(path: String, reason: String)] = []
+        for name in AccessPlanner.startupFiles {
+            let file = zdot + "/" + name
+            guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            let label = zdot == home ? "~/" + name : file
+            for path in AccessPlanner.paths(inStartupFile: text, home: home) {
+                sources.append((path, "used by " + label))
+                if let target = try? files.destinationOfSymbolicLink(atPath: path) {
+                    let absolute = target.hasPrefix("/") ? target
+                        : ((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(target)
+                    sources.append((absolute, "used by " + label))
+                }
+            }
+        }
+        for folder in AccessPlanner.wellKnownFolders where files.fileExists(atPath: folder) {
+            sources.append((folder, "tools installed there"))
+        }
+        return AccessPlanner.plan(sources: sources, home: home, granted: grantedPaths, readable: canRead)
     }
 
     /// The user's real home folder. In the sandbox NSHomeDirectory() is the app's container.

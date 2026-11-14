@@ -42,6 +42,10 @@ final class SessionLogger: @unchecked Sendable {
     private var shellEvents = ShellIntegrationScanner()
     /// #23: shell-integration events (command started / finished), on the main thread.
     var onShellEvent: ((ShellEvent) -> Void)?
+    /// #27 (sandboxed build): paths in an "operation not permitted" line, on the main thread.
+    var onRefusedPaths: (([String]) -> Void)?
+    private var partialLine = ""
+    private let watchRefusals = SandboxAccess.isSandboxed
     /// #18: called on the main thread when a new resume command shows up in the output. Set before output starts.
     var onResumeHint: ((String) -> Void)?
 
@@ -65,6 +69,7 @@ final class SessionLogger: @unchecked Sendable {
             }
             let plain = self.stripper.strip(copy)
             if !plain.isEmpty { self.text?.write(plain) }
+            if self.watchRefusals, !plain.isEmpty { self.scanRefusals(plain) }
             if let hint = self.hints.feed(plain), hint != self.record.resumeHint {
                 self.record.resumeHint = hint
                 self.writeMeta()
@@ -72,6 +77,18 @@ final class SessionLogger: @unchecked Sendable {
                 DispatchQueue.main.async { handler?(hint) }
             }
         }
+    }
+
+    /// #27: complete lines only; a line split across reads is joined first.
+    private func scanRefusals(_ plain: Data) {
+        partialLine += String(decoding: plain, as: UTF8.self)
+        var lines = partialLine.components(separatedBy: "\n")
+        partialLine = String(lines.removeLast().suffix(4096))
+        var paths: [String] = []
+        for line in lines { paths += AccessPlanner.refusedPaths(inLine: line) }
+        guard !paths.isEmpty else { return }
+        let handler = onRefusedPaths
+        DispatchQueue.main.async { handler?(paths) }
     }
 
     /// Clean text that goes to output.txt only (raw log stays byte-exact).

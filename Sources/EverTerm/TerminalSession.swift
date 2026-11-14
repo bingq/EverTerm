@@ -98,6 +98,12 @@ final class TerminalSession: LocalProcessDelegate, @unchecked Sendable {
 
     func terminate() { process.terminate() }
 
+    /// #27: end the shell the way closing a terminal does (SIGHUP), so it exits even if it ignores SIGTERM.
+    func hangUp() {
+        let pid = process.shellPid
+        if pid > 0 { kill(pid, SIGHUP) }
+    }
+
     /// Called after the process ends (any thread; work runs on the session queue): save the alternate
     /// screen if the app was still in it, then reset stuck modes.
     func finishScreen(banner: String) {

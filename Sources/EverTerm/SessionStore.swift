@@ -31,6 +31,11 @@ final class SessionStore: ObservableObject {
     }
 
     private func add(_ model: SessionModel) {
+        // #27 (sandboxed build): a program was refused a folder: offer it.
+        model.onAccessRefused = { [weak self] model, paths in
+            guard let self else { return }
+            AccessPrompt.offer(paths: paths, in: model, store: self)
+        }
         // Re-publish the model's changes so the sidebar sections regroup.
         forwarders[model.id] = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -108,6 +113,11 @@ final class SessionStore: ObservableObject {
         alert.addButton(withTitle: "Reconnect")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// #27: after new folder access: restart every shell that is at its prompt, in place.
+    func restartShellsAtPrompt(marker: String) {
+        for model in sessions where model.isAtPrompt { model.respawn(marker: marker) }
     }
 
     func beginRename() {

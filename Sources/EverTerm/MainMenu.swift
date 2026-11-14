@@ -24,6 +24,7 @@ enum MainMenu {
         if SandboxAccess.isSandboxed {          // #23: sandboxed test build only
             shell.addItem(.separator())
             shell.addItem(item("Grant Folder Access…", #selector(AppDelegate.grantFolderAccess(_:)), "", target: target))
+            shell.addItem(item("Grant Whole Disk Access…", #selector(AppDelegate.grantWholeDiskAccess(_:)), "", target: target))
         }
         main.addItem(submenu: shell, title: "Shell")
 
