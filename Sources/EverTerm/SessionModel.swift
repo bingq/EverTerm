@@ -202,6 +202,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
             foregroundIsConnect = false
         }
         var name = "local " + shellName
+        // Connection ended: name the session after what ⌘R will run ("et host"), not "local zsh".
+        if programDropped, let command = reconnectCommandLine { name = command }
         if foreground != shell, let program = ProcessInspector.name(of: foreground) {
             if programDropped { programDropped = false }
             name = title.isEmpty ? program : title   // title alone, no "program · " prefix (#13)
