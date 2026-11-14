@@ -173,10 +173,10 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         guard !foregroundIsConnect, foregroundChecks < 60 else { return }
         foregroundChecks += 1
         guard let argv = ProcessInspector.arguments(of: pid) else { return }
-        let direct = ReconnectRules.savedCommand(argv: argv, typedName: ProcessInspector.typedName)
+        let direct = ReconnectRules.savedCommand(argv: argv, onPath: ProcessInspector.isOnPath)
         let others = direct == nil ? ProcessInspector.otherArguments(inJob: pid) : []
         guard let command = direct
-                ?? ReconnectRules.savedCommand(job: argv, others: others, typedName: ProcessInspector.typedName)
+                ?? ReconnectRules.savedCommand(job: argv, others: others, onPath: ProcessInspector.isOnPath)
         else { return }
         foregroundIsConnect = true
         reconnectCommand = command
@@ -215,7 +215,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         let dir = directory.map(ProcessInspector.abbreviate) ?? ""
         switch status {
         case .running:
-            if programDropped { return "connection ended · ⌘R reconnects · \(dir)" }
+            if programDropped { return "connection ended · \(dir)" }
             return [dir, "since " + Self.clock.string(from: startedAt)]
                 .filter { !$0.isEmpty }.joined(separator: " · ")
         case .ended(let code):

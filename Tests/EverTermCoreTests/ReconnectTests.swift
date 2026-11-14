@@ -56,7 +56,15 @@ final class ReconnectTests: XCTestCase {
         XCTAssertEqual(R.savedCommand(job: ["devbox", "connect"], others: [privateET]), ["devbox", "connect"])
         // Launcher script: the kernel shows `bash /usr/local/bin/devbox connect`.
         XCTAssertEqual(R.savedCommand(job: ["/bin/bash", "/usr/local/bin/devbox", "connect"], others: [privateET]),
-                       ["/usr/local/bin/devbox", "connect"])
+                       ["devbox", "connect"])
+        // Same script outside PATH: keep its path.
+        XCTAssertEqual(R.savedCommand(job: ["/bin/bash", "/opt/x/devbox", "connect"], others: [privateET],
+                                      onPath: { _ in false }),
+                       ["/opt/x/devbox", "connect"])
+        // Mac run 2: a runner that keeps the launcher's script in a cache folder.
+        let cached = ["/usr/local/bin/runner", "/Users/me/Library/Caches/runner/files/devbox.runner", "connect"]
+        XCTAssertEqual(R.savedCommand(job: cached, others: [privateET], onPath: { $0 == "devbox" }), ["devbox", "connect"])
+        XCTAssertEqual(R.savedCommand(job: cached, others: [privateET], onPath: { _ in false }), cached)
         // Interactive ssh underneath, with options.
         XCTAssertEqual(R.savedCommand(job: ["jump"], others: [["ssh", "-p", "2222", "-i", "/k", "me@host"]]), ["jump"])
         XCTAssertEqual(R.savedCommand(job: ["jump"], others: [["ssh", "-t", "host", "tmux", "attach"]]), ["jump"])
@@ -90,9 +98,12 @@ final class ReconnectTests: XCTestCase {
 
     func testPrivateFolderProgramKeepsItsPath() {
         // et started by a launcher that exec'd it: not on PATH, so keep the full path.
-        XCTAssertEqual(R.savedCommand(argv: privateET, typedName: { $0 }), privateET)
-        XCTAssertEqual(R.savedCommand(argv: ["/usr/bin/ssh", "host"], typedName: R.baseName), ["ssh", "host"])
-        XCTAssertEqual(R.savedCommand(argv: ["et", "host"], typedName: { _ in "wrong" }), ["et", "host"])  // typed bare: as is
+        XCTAssertEqual(R.savedCommand(argv: privateET, onPath: { _ in false }), privateET)
+        XCTAssertEqual(R.savedCommand(argv: ["/usr/bin/ssh", "host"], onPath: { $0 == "ssh" }), ["ssh", "host"])
+        XCTAssertEqual(R.savedCommand(argv: ["et", "host"], onPath: { _ in false }), ["et", "host"])  // typed bare: as is
+        XCTAssertEqual(R.scriptStem("/c/devbox.runner"), "devbox")
+        XCTAssertEqual(R.scriptStem("/usr/local/bin/devbox"), "devbox")
+        XCTAssertEqual(R.scriptStem("/c/.hidden"), ".hidden")
     }
 
     func testShellQuoting() {

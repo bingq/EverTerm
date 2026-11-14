@@ -49,13 +49,10 @@ enum ProcessInspector {
         return result
     }
 
-    /// #18: what to type for a program path: its short name when that finds it on PATH,
-    /// else the full path (e.g. a tool in a private folder, started by a launcher).
-    static func typedName(_ path: String) -> String {
-        let name = (path as NSString).lastPathComponent
+    /// #18: does a short name find a program on PATH? (`ssh` yes; `et` kept in a private folder no)
+    static func isOnPath(_ name: String) -> Bool {
         let dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin").split(separator: ":")
-        let onPath = dirs.contains { FileManager.default.isExecutableFile(atPath: "\($0)/\(name)") }
-        return onPath ? name : path
+        return dirs.contains { FileManager.default.isExecutableFile(atPath: "\($0)/\(name)") }
     }
 
     private static func pids(_ type: Int32, _ value: pid_t) -> [pid_t] {

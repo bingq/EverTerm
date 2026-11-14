@@ -31,11 +31,11 @@ public enum ReconnectRules {
     /// Script launchers are unwrapped: mosh is a Perl script, so the process shows up as
     /// `perl /path/to/mosh host`. Its helper mosh-client is not a command you type: nil.
     ///
-    /// `typedName` turns the program path into what to type: the short name when it is on
-    /// PATH (`/usr/bin/ssh` -> `ssh`), the full path when it is not (a tool kept in a private
-    /// folder and started by a launcher). Default: always the short name.
+    /// `onPath` says whether a short name finds a program on PATH: then `/usr/bin/ssh` is
+    /// saved as `ssh`, like you typed it; if not (a tool kept in a private folder and started
+    /// by a launcher), the full path is kept. Default: everything is on PATH.
     public static func savedCommand(argv: [String],
-                                    typedName: (String) -> String = { baseName($0) }) -> [String]? {
+                                    onPath: (String) -> Bool = { _ in true }) -> [String]? {
         var args = argv
         if args.count >= 2, interpreters.contains(baseName(args[0])),
            connectPrograms.contains(baseName(args[1])) {
@@ -43,7 +43,7 @@ public enum ReconnectRules {
         }
         guard let first = args.first, connectPrograms.contains(baseName(first)) else { return nil }
         guard args.count >= 2 else { return nil }   // bare `ssh` prints usage; nothing to reconnect to
-        args[0] = first.contains("/") ? typedName(first) : first
+        args[0] = shortName(first, onPath: onPath)
         return args
     }
 
@@ -53,15 +53,36 @@ public enum ReconnectRules {
     /// ssh run by another tool to do one thing (git push, rsync, scp: a command after the
     /// host, no -t) does not count, so `git push` is never saved.
     public static func savedCommand(job: [String], others: [[String]],
-                                    typedName: (String) -> String = { baseName($0) }) -> [String]? {
-        if let direct = savedCommand(argv: job, typedName: typedName) { return direct }
+                                    onPath: (String) -> Bool = { _ in true }) -> [String]? {
+        if let direct = savedCommand(argv: job, onPath: onPath) { return direct }
         guard !job.isEmpty, others.contains(where: isInteractiveConnect) else { return nil }
+        // A launcher script runs as `<runner> <script file> <args>`: a shebang script
+        // (`bash /usr/local/bin/devbox connect`) or a runner that keeps its scripts in a
+        // cache folder (`runner /cache/devbox.runner connect`). If the script's name without
+        // its extension is a command on PATH, that is what you typed: `devbox connect`.
+        if job.count >= 2, job[1].hasPrefix("/") {
+            let stem = scriptStem(job[1])
+            if !stem.isEmpty, onPath(stem) { return [stem] + job.dropFirst(2) }
+        }
         var args = job
-        // A launcher script shows up as `bash /usr/local/bin/devbox connect`: drop the interpreter.
         if args.count >= 2, interpreters.contains(baseName(args[0])), !args[1].hasPrefix("-") {
             args.removeFirst()
         }
+        args[0] = shortName(args[0], onPath: onPath)
         return args
+    }
+
+    static func shortName(_ program: String, onPath: (String) -> Bool) -> String {
+        guard program.contains("/") else { return program }
+        let name = baseName(program)
+        return onPath(name) ? name : program
+    }
+
+    /// "/cache/devbox.runner" -> "devbox"; "/usr/local/bin/devbox" -> "devbox".
+    static func scriptStem(_ path: String) -> String {
+        let name = baseName(path)
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return name }
+        return String(name[..<dot])
     }
 
     /// A connect program that gives you a remote shell (not one remote command).
