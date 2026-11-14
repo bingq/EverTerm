@@ -16,7 +16,8 @@ check() {   # check "<name>" <command...>
 }
 
 echo "== EverTerm sandbox probe ($(date '+%Y-%m-%d %H:%M'))"
-[ -n "${APP_SANDBOX_CONTAINER_ID:-}" ] && pass "running sandboxed ($APP_SANDBOX_CONTAINER_ID)" || fail "not sandboxed (APP_SANDBOX_CONTAINER_ID unset)"
+case "$(pwd)" in */Library/Containers/*) pass "running sandboxed (starts in $(pwd))";;
+    *) [ "${EVERTERM_SANDBOX:-}" = 1 ] && pass "running sandboxed (EVERTERM_SANDBOX=1)" || fail "not sandboxed";; esac
 info "HOME=$HOME  real home=$real_home  pwd=$(pwd)"
 info "PATH=$PATH"
 
@@ -39,7 +40,7 @@ echo "== 3. programs"
 check "system ssh runs" ssh -V
 check "ssh inside the app bundle runs" "$here/../Helpers/ssh" -V
 check "zsh runs" /bin/zsh -c true
-check "git runs" git --version
+check "git runs ($(command -v git))" git --version
 if [ -d /opt/homebrew/bin ] || [ -d /usr/local/bin ]; then
     check "list /opt/homebrew/bin or /usr/local/bin" sh -c 'ls /opt/homebrew/bin 2>/dev/null | head -1 || ls /usr/local/bin | head -1'
 fi
@@ -48,7 +49,7 @@ for tool in et mosh brew; do
 done
 
 echo "== 4. network"
-check "DNS lookup github.com" sh -c 'host github.com >/dev/null 2>&1 || nslookup github.com >/dev/null 2>&1 || ping -c1 -t3 github.com >/dev/null'
+check "connect to github.com:22" nc -z -G 5 github.com 22
 out="$(ssh -T -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new git@github.com 2>&1)"
 case "$out" in *"successfully authenticated"*) pass "ssh to github.com with your key";;
                *) fail "ssh to github.com: $(printf '%s' "$out" | tail -1)";; esac

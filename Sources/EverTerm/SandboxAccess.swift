@@ -59,10 +59,40 @@ enum SandboxAccess {
         if let sock = process["SSH_AUTH_SOCK"], !env.contains(where: { $0.hasPrefix("SSH_AUTH_SOCK=") }) {
             env.append("SSH_AUTH_SOCK=" + sock)
         }
+        env = env.filter { !$0.hasPrefix("PATH=") }
+        env.append("PATH=" + sandboxPath().joined(separator: ":"))
         env.append("EVERTERM_SANDBOX=1")
         if let probe = Bundle.main.url(forResource: "sandbox-probe", withExtension: "sh") {
             env.append("EVERTERM_PROBE=" + probe.path)
         }
         return env
+    }
+
+    /// The PATH macOS normally sets up (/etc/paths, /etc/paths.d) plus Homebrew, with the real
+    /// developer tools first: /usr/bin/git and friends are xcrun stubs, and xcrun refuses to run
+    /// inside an App Sandbox. Your own shell files (~/.zprofile) can still change it afterwards.
+    nonisolated static func sandboxPath() -> [String] {
+        let files = FileManager.default
+        var dirs: [String] = []
+        func add(_ dir: String) {
+            let dir = dir.trimmingCharacters(in: .whitespaces)
+            if !dir.isEmpty, !dirs.contains(dir), files.fileExists(atPath: dir) { dirs.append(dir) }
+        }
+        if let developer = try? files.destinationOfSymbolicLink(atPath: "/var/db/xcode_select_link") {
+            add(developer + "/usr/bin")                      // e.g. /Applications/Xcode.app/Contents/Developer
+        }
+        add("/Library/Developer/CommandLineTools/usr/bin")
+        add("/opt/homebrew/bin")
+        add("/opt/homebrew/sbin")
+        var lists = ["/etc/paths"]
+        if let extra = try? files.contentsOfDirectory(atPath: "/etc/paths.d") {
+            lists += extra.sorted().map { "/etc/paths.d/" + $0 }
+        }
+        for list in lists {
+            guard let text = try? String(contentsOfFile: list, encoding: .utf8) else { continue }
+            text.split(whereSeparator: \.isNewline).forEach { add(String($0)) }
+        }
+        for fallback in ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] { add(fallback) }
+        return dirs
     }
 }
