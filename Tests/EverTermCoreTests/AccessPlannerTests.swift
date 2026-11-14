@@ -69,6 +69,15 @@ final class AccessPlannerTests: XCTestCase {
         XCTAssertEqual(P.plan(sources: [], home: home, granted: [], readable: { $0 == "/Users/me" }), [])
     }
 
+    func testCoveringFolder() {
+        XCTAssertEqual(P.coveringFolder(["/Users/me"]), "/Users/me")
+        XCTAssertEqual(P.coveringFolder(["/Users/me", "/Users/me/work"]), "/Users/me")
+        XCTAssertEqual(P.coveringFolder(["/Users/me", "/opt/homebrew"]), "/")
+        XCTAssertEqual(P.coveringFolder(["/opt/homebrew/", "/opt/local"]), "/opt")
+        XCTAssertEqual(P.coveringFolder(["/Users/me", "/Users/meg"]), "/Users")   // whole names, not prefixes
+        XCTAssertNil(P.coveringFolder([]))
+    }
+
     func testRefusedPathsInOutput() {
         XCTAssertEqual(P.refusedPaths(inLine: "/Users/me/.zprofile:2: operation not permitted: /opt/homebrew/bin/brew"),
                        ["/Users/me/.zprofile", "/opt/homebrew/bin/brew"])

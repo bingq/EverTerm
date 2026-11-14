@@ -165,6 +165,11 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         return (session.foregroundProcessGroup() ?? shell) == shell
     }
 
+    /// A dim note line in this session (screen and output.txt).
+    func note(_ text: String) {
+        session.mark("── \(text) ──")
+    }
+
     /// End this shell and start a new one in the same session, history above kept, so it gets
     /// folder access granted after it started. The saved connect command is kept, not run.
     func respawn(marker: String) {

@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func grantFolderAccess(_ sender: Any?) {
         guard let store else { return }
         let needs = SandboxAccess.needs()
-        let granted = needs.isEmpty ? SandboxAccess.grant() : AccessPrompt.grantOneByOne(needs)
+        let granted = needs.isEmpty ? SandboxAccess.grant() : AccessPrompt.grantInTurn(needs)
         if granted { store.restartShellsAtPrompt(marker: "shell restarted to use the new folder access") }
     }
 

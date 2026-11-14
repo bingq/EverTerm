@@ -76,6 +76,19 @@ public enum AccessPlanner {
         return needs
     }
 
+    /// #27: the one folder to grant so that a single click covers all `folders`: the deepest
+    /// folder containing every one of them ("/" when they only share the disk).
+    public static func coveringFolder(_ folders: [String]) -> String? {
+        let parts = folders.map { normalized($0).split(separator: "/").map(String.init) }
+        guard var common = parts.first else { return nil }
+        for other in parts.dropFirst() {
+            var count = 0
+            while count < common.count, count < other.count, common[count] == other[count] { count += 1 }
+            common = Array(common.prefix(count))
+        }
+        return "/" + common.joined(separator: "/")
+    }
+
     /// Paths in an output line that reports a sandbox refusal ("operation not permitted"),
     /// e.g. `zsh: operation not permitted: /opt/homebrew/bin/brew` or `ls: /x: Operation not permitted`.
     public static func refusedPaths(inLine line: String) -> [String] {
