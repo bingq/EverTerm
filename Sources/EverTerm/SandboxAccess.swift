@@ -87,6 +87,8 @@ enum SandboxAccess {
             let dir = dir.trimmingCharacters(in: .whitespaces)
             if !dir.isEmpty, !dirs.contains(dir), files.fileExists(atPath: dir) { dirs.append(dir) }
         }
+        // #26: wrappers for system tools that can't work sandboxed (launchctl start ssh-agent).
+        if let bin = Bundle.main.resourceURL?.appendingPathComponent("bin").path { add(bin) }
         if let developer = try? files.destinationOfSymbolicLink(atPath: "/var/db/xcode_select_link") {
             add(developer + "/usr/bin")                      // e.g. /Applications/Xcode.app/Contents/Developer
         }

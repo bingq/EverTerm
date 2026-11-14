@@ -1,0 +1,10 @@
+#!/bin/sh
+# EverTerm sandboxed build only (#26). The App Sandbox does not let programs started by an app
+# control launchd services, so `launchctl start com.openssh.ssh-agent` (run by some connect
+# launchers) fails with "Not privileged to start service". If the agent at SSH_AUTH_SOCK already
+# answers, there is nothing to start: succeed quietly. Everything else goes to the real launchctl.
+if [ $# -eq 2 ] && [ "$1" = start ] && [ "$2" = com.openssh.ssh-agent ] && [ -n "${SSH_AUTH_SOCK:-}" ]; then
+    /usr/bin/ssh-add -l >/dev/null 2>&1
+    case $? in 0|1) exit 0 ;; esac      # 0: keys loaded, 1: agent up with no keys
+fi
+exec /bin/launchctl "$@"

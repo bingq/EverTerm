@@ -52,6 +52,7 @@ if [ "$SANDBOX" = "1" ]; then
     cp scripts/sandbox-probe.sh "$APP/Contents/Resources/sandbox-probe.sh"
     mkdir -p "$APP/Contents/Resources/shell-integration"
     cp -R scripts/shell-integration/zsh "$APP/Contents/Resources/shell-integration/zsh"
+    cp -R scripts/sandbox-bin "$APP/Contents/Resources/bin"      # #26: launchctl wrapper
     chmod +x "$APP/Contents/Resources/sandbox-probe.sh"
 fi
 
