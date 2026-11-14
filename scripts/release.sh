@@ -50,6 +50,8 @@ if [ "$SANDBOX" = "1" ]; then
     mkdir -p "$APP/Contents/Helpers"
     cp /usr/bin/ssh "$APP/Contents/Helpers/ssh"
     cp scripts/sandbox-probe.sh "$APP/Contents/Resources/sandbox-probe.sh"
+    mkdir -p "$APP/Contents/Resources/shell-integration"
+    cp -R scripts/shell-integration/zsh "$APP/Contents/Resources/shell-integration/zsh"
     chmod +x "$APP/Contents/Resources/sandbox-probe.sh"
 fi
 

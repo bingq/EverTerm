@@ -62,6 +62,15 @@ enum SandboxAccess {
         env = env.filter { !$0.hasPrefix("PATH=") }
         env.append("PATH=" + sandboxPath().joined(separator: ":"))
         env.append("EVERTERM_SANDBOX=1")
+        // Shell integration: zsh reads its startup files from our folder, which loads yours
+        // and adds the command hooks (the sandbox does not let EverTerm read child processes).
+        if let zdot = Bundle.main.resourceURL?.appendingPathComponent("shell-integration/zsh").path,
+           FileManager.default.fileExists(atPath: zdot + "/.zshrc") {
+            let user = process["ZDOTDIR"] ?? realHome
+            env = env.filter { !$0.hasPrefix("ZDOTDIR=") && !$0.hasPrefix("EVERTERM_USER_ZDOTDIR=") }
+            env.append("EVERTERM_USER_ZDOTDIR=" + user)
+            env.append("ZDOTDIR=" + zdot)
+        }
         if let probe = Bundle.main.url(forResource: "sandbox-probe", withExtension: "sh") {
             env.append("EVERTERM_PROBE=" + probe.path)
         }

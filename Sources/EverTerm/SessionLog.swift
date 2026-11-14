@@ -16,6 +16,7 @@ struct SessionRecord: Codable {
     var reconnectCommand: [String]? = nil   // last connect command run here (ssh, et, mosh...)
     var reconnectDirectory: String? = nil   // local directory it was started from
     var resumeHint: String? = nil           // e.g. "claude --resume <id>", seen in the output
+    var reconnectLine: String? = nil        // #23: the command line as typed (from shell integration)
 }
 
 /// Writes one session to disk as it happens:
@@ -38,6 +39,9 @@ final class SessionLogger: @unchecked Sendable {
     private var debug: FileHandle?   // capture-debug.log, opened on first use
     private var stripper = AnsiStripper()
     private var hints = ResumeHintScanner()
+    private var shellEvents = ShellIntegrationScanner()
+    /// #23: shell-integration events (command started / finished), on the main thread.
+    var onShellEvent: ((ShellEvent) -> Void)?
     /// #18: called on the main thread when a new resume command shows up in the output. Set before output starts.
     var onResumeHint: ((String) -> Void)?
 
@@ -54,6 +58,11 @@ final class SessionLogger: @unchecked Sendable {
         let copy = Data(bytes)
         queue.async {
             self.raw?.write(copy)
+            let events = self.shellEvents.feed(copy)
+            if !events.isEmpty {
+                let handler = self.onShellEvent
+                DispatchQueue.main.async { events.forEach { handler?($0) } }
+            }
             let plain = self.stripper.strip(copy)
             if !plain.isEmpty { self.text?.write(plain) }
             if let hint = self.hints.feed(plain), hint != self.record.resumeHint {
@@ -100,9 +109,10 @@ final class SessionLogger: @unchecked Sendable {
     }
 
     /// #18. nil clears.
-    func updateReconnect(command: [String]?, directory: String?, resumeHint: String?) {
+    func updateReconnect(command: [String]?, directory: String?, resumeHint: String?, line: String? = nil) {
         queue.async {
             self.record.reconnectCommand = command
+            self.record.reconnectLine = line
             self.record.reconnectDirectory = directory
             self.record.resumeHint = resumeHint
             self.writeMeta()

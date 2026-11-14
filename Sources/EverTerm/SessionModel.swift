@@ -39,6 +39,10 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
     /// #18: last connect command run in this session (ssh, et, mosh...) and where from,
     /// plus the Claude Code resume command seen in the output. Saved in meta.json only.
     @Published private(set) var reconnectCommand: [String]? = nil
+    /// #23: the same, as the typed command line, when shell integration reported it (sandbox build).
+    @Published private(set) var reconnectLine: String? = nil
+    private var runningLine: String?          // command running now, from shell integration
+    private var runningIsConnect = false      // it reached another machine
     private(set) var reconnectDirectory: String? = nil
     @Published private(set) var resumeHint: String? = nil
     /// The saved command was shown once (it can hold a secret); later ⌘R runs it straight away.
@@ -56,6 +60,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         var customName: String?
         var confirmed: Bool
         var fromName: String?        // nil: restarted in place, so no "from ended session" note
+        var line: String? = nil      // #23: typed command line (shell integration)
     }
 
     private var title = ""
@@ -99,15 +104,21 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         session.onOutput = { [weak self] in self?.noteOutput() }
         session.onProgramDropped = { [weak self] in self?.programDropped = true }
         session.logger.onResumeHint = { [weak self] hint in self?.resumeHint = hint }
+        session.logger.onShellEvent = { [weak self] event in self?.shellEvent(event) }
+        runningLine = nil
+        runningIsConnect = false
         if let carry {
             reconnectCommand = carry.command
+            reconnectLine = carry.line
             reconnectDirectory = carry.directory
             resumeHint = carry.resumeHint
             reconnectConfirmed = carry.confirmed
             customName = carry.customName          // didSet does not run in init
             if let name = carry.customName { session.logger.update(customName: name) }
-            session.logger.updateReconnect(command: carry.command, directory: carry.directory, resumeHint: carry.resumeHint)
-            pendingInput = carry.command.map { ReconnectRules.keystrokes(command: ShellCommand.join($0), pressEnter: true) }
+            session.logger.updateReconnect(command: carry.command, directory: carry.directory,
+                                           resumeHint: carry.resumeHint, line: carry.line)
+            pendingInput = (carry.line ?? carry.command.map(ShellCommand.join))
+                .map { ReconnectRules.keystrokes(command: $0, pressEnter: true) }
             session.mark(reconnectMarker(from: carry.fromName))
         }
         session.start(executable: shell, args: [], execName: "-" + shellName, directory: directory)
@@ -142,7 +153,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     // MARK: reconnect (#18)
 
-    var reconnectCommandLine: String? { reconnectCommand.map(ShellCommand.join) }
+    var reconnectCommandLine: String? { reconnectLine ?? reconnectCommand.map(ShellCommand.join) }
 
     var reconnectPlan: ReconnectRules.Plan {
         let shell = status == .running ? session.shellPID : nil
@@ -167,6 +178,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     func forgetReconnect() {
         reconnectCommand = nil
+        reconnectLine = nil
         reconnectDirectory = nil
         resumeHint = nil
         reconnectConfirmed = false
@@ -175,7 +187,7 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     func carry() -> Carry {
         Carry(command: reconnectCommand, directory: reconnectDirectory ?? directory, resumeHint: resumeHint,
-              customName: customName, confirmed: reconnectConfirmed, fromName: displayName)
+              customName: customName, confirmed: reconnectConfirmed, fromName: displayName, line: reconnectLine)
     }
 
     private func reconnectMarker(from name: String?) -> String {
@@ -236,6 +248,40 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
         if name != autoName { autoName = name }
     }
 
+    // MARK: shell integration (#23)
+
+    /// Commands reported by the zsh hook (sandbox build): no process reading needed.
+    private func shellEvent(_ event: ShellEvent) {
+        switch event {
+        case .commandStarted(let line):
+            runningLine = line
+            runningIsConnect = false
+            if programDropped { programDropped = false }
+            if ConnectDetection.startsWithConnectProgram(line) { markConnect() }
+        case .commandFinished:
+            // The connection's command ended and the prompt is back: orange, ⌘R runs it again.
+            if runningLine != nil, runningIsConnect { programDropped = true }
+            runningLine = nil
+            runningIsConnect = false
+            refreshProcessInfo()
+        }
+    }
+
+    private func markConnect() {
+        guard let line = runningLine, !runningIsConnect else { return }
+        runningIsConnect = true
+        reconnectLine = line
+        reconnectCommand = nil
+        reconnectDirectory = directory
+        session.logger.updateReconnect(command: nil, directory: directory, resumeHint: resumeHint, line: line)
+    }
+
+    /// This Mac's name, to tell a remote title (`me@otherhost:~`) from a local one.
+    private static let localHost: String = {
+        var buffer = [CChar](repeating: 0, count: 256)
+        return gethostname(&buffer, buffer.count) == 0 ? String(cString: buffer) : ProcessInfo.processInfo.hostName
+    }()
+
     // MARK: sidebar text
 
     var subtitle: String {
@@ -284,6 +330,8 @@ final class SessionModel: ObservableObject, Identifiable, TerminalViewDelegate {
 
     func setTerminalTitle(source: TerminalView, title: String) {
         self.title = title
+        // #23: a title naming another machine while a command runs: that command is a connection.
+        if runningLine != nil, ConnectDetection.titleIsRemote(title, localHost: Self.localHost) { markConnect() }
         session?.logger.update(title: title)
         refreshProcessInfo()
     }
