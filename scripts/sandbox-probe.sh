@@ -49,7 +49,10 @@ if [ -d /opt/homebrew/bin ]; then
     check "read a script in /opt/homebrew/bin (brew)" head -1 /opt/homebrew/bin/brew
     check "run a script via bash (bash brew --version)" /bin/bash /opt/homebrew/bin/brew --version
     check "run a script directly (brew --version)" /opt/homebrew/bin/brew --version
-    bin="$(for f in /opt/homebrew/bin/*; do case "$(file -bL "$f" 2>/dev/null)" in Mach-O*) echo "$f"; break;; esac; done)"
+    bin=""
+    for f in /opt/homebrew/bin/*; do
+        if file -bL "$f" 2>/dev/null | grep -q '^Mach-O'; then bin="$f"; break; fi
+    done
     if [ -n "$bin" ]; then
         check "run a program directly ($bin --version)" "$bin" --version
     else
