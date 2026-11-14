@@ -15,6 +15,8 @@
 # Builds dist-sandbox/EverTerm.app (bundle ID + ".sandboxtest", so its container and settings
 # are separate), ad-hoc signed with the App Sandbox, with a copy of ssh inside the bundle and
 # the probe script. Run it with: open dist-sandbox/EverTerm.app  (do not copy it to /Applications).
+# EVERTERM_SANDBOX_TTY=1 adds a test-only sandbox exception that allows terminal control calls
+# (ioctl) on the pty, to check whether those are what the sandbox blocks.
 set -euo pipefail
 VERSION="${1:?usage: scripts/release.sh <version> [build]}"
 BUILD="${2:-1}"
@@ -52,7 +54,14 @@ fi
 echo "== sign (${IDENTITY/#-/ad-hoc})"
 if [ "$SANDBOX" = "1" ]; then
     codesign --force --sign - --entitlements scripts/sandbox-helper.entitlements "$APP/Contents/Helpers/ssh"
-    codesign --force --sign - --entitlements scripts/sandbox.entitlements "$APP"
+    ENT=scripts/sandbox.entitlements
+    if [ "${EVERTERM_SANDBOX_TTY:-0}" = "1" ]; then
+        ENT="$OUT/sandbox-tty.entitlements"
+        sed 's|</dict>|    <key>com.apple.security.temporary-exception.sbpl</key>\n    <array><string>(allow file-ioctl)</string></array>\n</dict>|' \
+            scripts/sandbox.entitlements > "$ENT"
+        echo "test exception: pty ioctl allowed"
+    fi
+    codesign --force --sign - --entitlements "$ENT" "$APP"
     codesign -d --entitlements - "$APP" 2>/dev/null | grep -q app-sandbox && echo "sandbox: on"
 elif [ "$IDENTITY" = "-" ]; then
     codesign --force --sign - "$APP"
