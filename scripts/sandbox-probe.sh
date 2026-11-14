@@ -44,6 +44,18 @@ check "git runs ($(command -v git))" git --version
 if [ -d /opt/homebrew/bin ] || [ -d /usr/local/bin ]; then
     check "list /opt/homebrew/bin or /usr/local/bin" sh -c 'ls /opt/homebrew/bin 2>/dev/null | head -1 || ls /usr/local/bin | head -1'
 fi
+echo "== 3b. programs in a granted folder (Homebrew)"
+if [ -d /opt/homebrew/bin ]; then
+    check "read a script in /opt/homebrew/bin (brew)" head -1 /opt/homebrew/bin/brew
+    check "run a script via bash (bash brew --version)" /bin/bash /opt/homebrew/bin/brew --version
+    check "run a script directly (brew --version)" /opt/homebrew/bin/brew --version
+    bin="$(for f in /opt/homebrew/bin/*; do case "$(file -bL "$f" 2>/dev/null)" in Mach-O*) echo "$f"; break;; esac; done)"
+    if [ -n "$bin" ]; then
+        check "run a program directly ($bin --version)" "$bin" --version
+    else
+        info "no compiled program found in /opt/homebrew/bin"
+    fi
+fi
 for tool in et mosh brew; do
     if p="$(command -v "$tool" 2>/dev/null)"; then check "$tool runs ($p)" "$p" --version; else info "$tool not on PATH"; fi
 done
